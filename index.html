@@ -367,9 +367,13 @@ const charts = {};
 const empresaColors = {};
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
+// Formato argentino: punto = separador de miles (se elimina), coma = decimal (→ punto)
+// Ej: "3.460" → 3460 | "5,022" → 5.022 | "1.475.072" → 1475072 | "1590,96" → 1590.96
 function parseNum(v) {
   if (v === null || v === undefined || v === '') return 0;
-  return parseFloat(String(v).replace('%','').replace(',','.').trim()) || 0;
+  let s = String(v).replace('%','').trim();
+  s = s.replace(/\./g, '').replace(',', '.');
+  return parseFloat(s) || 0;
 }
 
 function parsePct(v) {
