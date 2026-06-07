@@ -186,7 +186,8 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
 
 <!-- Tabs -->
 <div class="tabs">
-  <div class="tab active" data-tab="posicion">📊 Posición Comercial</div>
+  <div class="tab active" data-tab="base">📐 Base</div>
+  <div class="tab" data-tab="posicion">📊 Posición Comercial</div>
   <div class="tab" data-tab="resultado">💰 Resultado &amp; MB</div>
   <div class="tab" data-tab="escenarios">🎯 Escenarios de Precio</div>
   <div class="tab" data-tab="evolucion">📈 Evolución</div>
@@ -200,8 +201,47 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
     <div>Cargando datos desde Google Sheets…</div>
   </div>
 
+  <!-- TAB: Base (Superficie & Rindes) -->
+  <div class="tab-panel active" id="tab-base">
+
+    <!-- Sección Superficie -->
+    <div style="font-size:18px; font-weight:700; color:var(--text); margin-bottom:4px;">🌱 Superficie Sembrada</div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:16px;">Distribución de hectáreas por cultivo y empresa</div>
+
+    <div class="cards" id="cards-base-sup"></div>
+
+    <div class="charts-grid">
+      <div class="chart-box chart-full">
+        <div class="chart-title">Superficie por Cultivo — Composición por Empresa</div>
+        <div class="chart-sub">Cada barra es un cultivo, los colores son las empresas (pasá el mouse para ver el detalle)</div>
+        <canvas id="chart-sup-cultivo" height="80"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Composición de Cultivos por Empresa (%)</div>
+        <div class="chart-sub">Cada barra llega al 100%. La última barra (GRUPO) es el total del grupo</div>
+        <canvas id="chart-sup-empresa" height="80"></canvas>
+      </div>
+    </div>
+
+    <!-- Sección Rendimientos -->
+    <div style="font-size:18px; font-weight:700; color:var(--text); margin:28px 0 4px;">🌾 Rendimientos Estimados</div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:16px;">Última estimación de rinde y su evolución durante la campaña</div>
+
+    <div class="chart-box" style="margin-bottom:16px;">
+      <div class="chart-title">Última Estimación de Rinde por Cultivo y Campaña (t/ha)</div>
+      <div id="tabla-rindes" style="overflow-x:auto; margin-top:4px;"></div>
+    </div>
+
+    <div class="chart-box chart-full">
+      <div class="chart-title">Evolución del Rinde Estimado en la Campaña</div>
+      <div class="chart-sub">Promedio ponderado del grupo, mes a mes — campaña seleccionada en el filtro</div>
+      <canvas id="chart-evol-rinde" height="80"></canvas>
+    </div>
+
+  </div>
+
   <!-- TAB: Posición Comercial -->
-  <div class="tab-panel active" id="tab-posicion">
+  <div class="tab-panel" id="tab-posicion">
     <div class="cards" id="cards-posicion"></div>
     <div class="charts-grid">
       <div class="chart-box chart-full">
@@ -359,6 +399,34 @@ const EMPRESA_COLORS = [
   '#79c0ff','#ff7b72','#ffa657','#56d364','#e3b341',
   '#db6d28','#39d353','#a5d6ff'
 ];
+
+// Colores fijos por cultivo (claves normalizadas: minúscula, sin tildes)
+const CULTIVO_COLORS = {
+  'trigo':              '#f0d048', // amarillo
+  'cebada':             '#e8893a', // naranja
+  'soja 1era':          '#1a7a3a', // verde oscuro
+  'soja 1era no gmo':   '#2ea043', // verde medio
+  'soja 2da':           '#7ee787', // verde claro
+  'maiz temprano':      '#e5141a', // rojo fuerte
+  'maiz tardio':        '#a84458', // bordó claro
+  'maiz pisingallo':    '#6e1f2e', // bordó oscuro
+  'maiz 2da':           '#ff8a82', // rojo claro
+  'girasol confitero':  '#a5d6ff', // celeste claro
+  'girasol conv.':      '#58a6ff', // celeste medio
+  'girasol ao':         '#1f6feb', // celeste/azul
+  // resto a gusto
+  'arveja':             '#56d364', // verde lima
+  'colza':              '#bc8cff', // violeta
+  'mani':               '#d2a679', // marrón/beige
+  'sorgo':              '#d29922', // mostaza
+};
+
+// Normaliza el nombre de cultivo y devuelve su color (o uno de la paleta si no está mapeado)
+function cultColor(cultivo, fallbackIndex = 0) {
+  const key = String(cultivo||'').toLowerCase().trim()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'');
+  return CULTIVO_COLORS[key] || EMPRESA_COLORS[fallbackIndex % EMPRESA_COLORS.length];
+}
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let allData = [];
@@ -658,6 +726,7 @@ function applyFilters() {
 
 // ─── RENDER ALL ───────────────────────────────────────────────────────────────
 function renderAll() {
+  renderBase();
   renderPosicion();
   renderResultado();
   renderEscenarios();
@@ -695,6 +764,204 @@ function darkOpts({ yFmt, xFmt, yRange, horizontal, stacked, tooltipFmt } = {}) 
     if (horizontal && yRange) { opts.scales.x.min = yRange[0]; opts.scales.x.max = yRange[1]; }
   }
   return opts;
+}
+
+// ─── TAB: BASE (Superficie & Rindes) ──────────────────────────────────────────
+function renderBase() {
+  const data = filteredData;
+  if (!data.length) return;
+
+  const empresas = [...new Set(data.map(r=>r.empresa))].sort();
+  const cultivos = [...new Set(data.map(r=>r.cultivo))].sort();
+
+  // Helper: superficie de un cultivo+empresa
+  const supOf = (cult, emp) =>
+    data.filter(r => r.cultivo===cult && r.empresa===emp).reduce((s,r)=>s+r.superficie,0);
+  const supCultivo = c => data.filter(r=>r.cultivo===c).reduce((s,r)=>s+r.superficie,0);
+  const supEmpresa = e => data.filter(r=>r.empresa===e).reduce((s,r)=>s+r.superficie,0);
+  const supTotal   = data.reduce((s,r)=>s+r.superficie,0);
+
+  // ── Cards resumen ──
+  const cultivoMayor = cultivos.map(c=>({c,s:supCultivo(c)})).sort((a,b)=>b.s-a.s)[0];
+  document.getElementById('cards-base-sup').innerHTML = `
+    <div class="card">
+      <div class="card-label">Superficie Total</div>
+      <div class="card-value blue">${fmt(supTotal)}</div>
+      <div class="card-sub">hectáreas sembradas</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Cultivos</div>
+      <div class="card-value">${cultivos.length}</div>
+      <div class="card-sub">distintos en el grupo</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Empresas</div>
+      <div class="card-value">${empresas.length}</div>
+      <div class="card-sub">con superficie cargada</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Cultivo Principal</div>
+      <div class="card-value green" style="font-size:20px">${cultivoMayor?.c||'–'}</div>
+      <div class="card-sub">${fmt(cultivoMayor?.s||0)} ha (${fmtPct((cultivoMayor?.s||0)/supTotal*100)})</div>
+    </div>`;
+
+  // ── Gráfico 1: superficie por cultivo, apilada por empresa ──
+  destroyChart('sup-cultivo');
+  charts['sup-cultivo'] = new Chart(document.getElementById('chart-sup-cultivo'), {
+    type:'bar',
+    data:{
+      labels: cultivos,
+      datasets: empresas.map(e => ({
+        label: e,
+        data: cultivos.map(c => supOf(c,e)),
+        backgroundColor: col(e)+'cc', borderColor: col(e), borderWidth:1
+      }))
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      plugins:{
+        legend:{ labels:{color:'#8b949e',boxWidth:10,font:{size:10}} },
+        tooltip:{ mode:'index', intersect:false,
+          callbacks:{ label:ctx=> ctx.raw>0 ? `  ${ctx.dataset.label}: ${fmt(ctx.raw)} ha` : null,
+            afterBody:items=>['─────────', `  Total: ${fmt(items.reduce((s,i)=>s+i.raw,0))} ha`] } }
+      },
+      scales:{
+        x:{ stacked:true, ticks:{color:'#8b949e',font:{size:10}}, grid:{color:'#21262d'} },
+        y:{ stacked:true, ticks:{color:'#8b949e',font:{size:11},callback:v=>fmt(v)}, grid:{color:'#21262d'} }
+      }
+    }
+  });
+
+  // ── Gráfico 2: superficie por empresa, apilada por cultivo ──
+  const cultColors = {};
+  cultivos.forEach((c,i)=> cultColors[c] = cultColor(c, i));
+  // Etiquetas: empresas + GRUPO al final
+  const labelsEmp = [...empresas, 'GRUPO'];
+  // Para cada cultivo, el % que representa en cada empresa (y en el grupo)
+  destroyChart('sup-empresa');
+  charts['sup-empresa'] = new Chart(document.getElementById('chart-sup-empresa'), {
+    type:'bar',
+    data:{
+      labels: labelsEmp,
+      datasets: cultivos.map(c => ({
+        label: c,
+        data: labelsEmp.map(lbl => {
+          if (lbl === 'GRUPO') {
+            return supTotal>0 ? supCultivo(c)/supTotal*100 : 0;
+          }
+          const totEmp = supEmpresa(lbl);
+          return totEmp>0 ? supOf(c,lbl)/totEmp*100 : 0;
+        }),
+        // guardar has para el tooltip
+        _has: labelsEmp.map(lbl => lbl==='GRUPO' ? supCultivo(c) : supOf(c,lbl)),
+        backgroundColor: cultColors[c]+'cc', borderColor: cultColors[c], borderWidth:1
+      }))
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      plugins:{
+        legend:{ labels:{color:'#8b949e',boxWidth:10,font:{size:10}} },
+        tooltip:{ mode:'index', intersect:false,
+          callbacks:{
+            label:ctx=> ctx.raw>0.05
+              ? `  ${ctx.dataset.label}: ${fmtPct(ctx.raw)} (${fmt(ctx.dataset._has[ctx.dataIndex])} ha)`
+              : null
+          } }
+      },
+      scales:{
+        x:{ stacked:true, ticks:{color:'#8b949e',font:{size:11}}, grid:{color:'#21262d'} },
+        y:{ stacked:true, min:0, max:100,
+            ticks:{color:'#8b949e',font:{size:11},callback:v=>v+'%'}, grid:{color:'#21262d'} }
+      }
+    }
+  });
+
+  // ═══ RENDIMIENTOS ═══
+  renderRindes();
+}
+
+// Tabla de última estimación de rinde por cultivo × campaña + evolución
+function renderRindes() {
+  // Usar TODA la data (todas las campañas) para la tabla de rindes
+  const cultivoFiltro = document.getElementById('f-cultivo').value;
+  const empresaFiltro = document.getElementById('f-empresa').value;
+  let base = allData.filter(r =>
+    (!cultivoFiltro || r.cultivo===cultivoFiltro) &&
+    (!empresaFiltro || r.empresa===empresaFiltro) &&
+    r.rendimiento > 0
+  );
+
+  const campanas = [...new Set(base.map(r=>r.campana))].sort();
+  const cultivos = [...new Set(base.map(r=>r.cultivo))].sort();
+
+  // Para cada cultivo+campaña: tomar el último mes y promediar rinde ponderado por superficie
+  const rindeOf = (cult, camp) => {
+    const rows = base.filter(r=>r.cultivo===cult && r.campana===camp);
+    if (!rows.length) return null;
+    // último mes
+    const maxMes = rows.reduce((m,r)=> r.mes&&r.mes>m ? r.mes : m, new Date(0));
+    const last = rows.filter(r=> r.mes &&
+      r.mes.getFullYear()===maxMes.getFullYear() && r.mes.getMonth()===maxMes.getMonth());
+    return wAvg(last,'rendimiento');
+  };
+
+  const head = `<th style="text-align:left">Cultivo</th>` +
+    campanas.map(c=>`<th style="text-align:right">${c}</th>`).join('');
+  const body = cultivos.map(cult => {
+    const cells = campanas.map(camp => {
+      const r = rindeOf(cult, camp);
+      return `<td style="text-align:right">${r!=null && r>0 ? fmt(r,1) : '<span style=color:var(--border)>·</span>'}</td>`;
+    }).join('');
+    return `<tr><td><strong>${cult}</strong></td>${cells}</tr>`;
+  }).join('');
+  document.getElementById('tabla-rindes').innerHTML = `
+    <table class="cmp-table" style="min-width:600px">
+      <thead><tr>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+
+  // ── Evolución del rinde en la campaña seleccionada ──
+  const campSel = document.getElementById('f-campana').value || campanas[campanas.length-1];
+  const evolData = allData.filter(r =>
+    r.campana===campSel &&
+    (!cultivoFiltro || r.cultivo===cultivoFiltro) &&
+    (!empresaFiltro || r.empresa===empresaFiltro) &&
+    r.rendimiento > 0
+  );
+  const meses = [...new Set(evolData.map(r=>r.mesStr).filter(Boolean))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+  const cultEvol = [...new Set(evolData.map(r=>r.cultivo))].sort();
+  const cultColors2 = {};
+  cultEvol.forEach((c,i)=> cultColors2[c] = cultColor(c, i));
+
+  destroyChart('evol-rinde');
+  charts['evol-rinde'] = new Chart(document.getElementById('chart-evol-rinde'), {
+    type:'line',
+    data:{
+      labels: meses,
+      datasets: cultEvol.map(c => ({
+        label: c,
+        data: meses.map(mes => {
+          const rs = evolData.filter(r=>r.cultivo===c && r.mesStr===mes);
+          return rs.length ? wAvg(rs,'rendimiento') : null;
+        }),
+        borderColor: cultColors2[c], backgroundColor: cultColors2[c]+'22',
+        fill:false, tension:0.3, spanGaps:true, pointRadius:3
+      }))
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      plugins:{
+        legend:{ labels:{color:'#8b949e',boxWidth:10,font:{size:10}} },
+        tooltip:{ mode:'index', intersect:false,
+          callbacks:{ label:ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmt(ctx.raw,1)} t/ha` : null } }
+      },
+      scales:{
+        x:{ ticks:{color:'#8b949e',font:{size:10}}, grid:{color:'#21262d'} },
+        y:{ ticks:{color:'#8b949e',font:{size:11},callback:v=>fmt(v,1)+' t'}, grid:{color:'#21262d'} }
+      }
+    }
+  });
 }
 
 // ─── TAB: POSICIÓN COMERCIAL ──────────────────────────────────────────────────
