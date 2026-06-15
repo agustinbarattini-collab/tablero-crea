@@ -33,6 +33,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 select { background: var(--s2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: var(--r); font-size: 13px; cursor: pointer; }
 select:focus { outline: none; border-color: var(--blue); }
 
+/* Multi-select empresa */
+.multi { position: relative; }
+.multi-btn { background: var(--s2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: var(--r); font-size: 13px; cursor: pointer; min-width: 130px; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.multi-btn:hover { border-color: var(--blue); }
+.multi-btn .caret { color: var(--muted); font-size: 10px; }
+.multi-panel { display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 100; background: var(--s2); border: 1px solid var(--border); border-radius: var(--r); padding: 6px; min-width: 180px; max-height: 320px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.multi-panel.open { display: block; }
+.multi-actions { display: flex; gap: 6px; padding: 4px 6px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.multi-actions button { flex: 1; background: var(--s3); border: 1px solid var(--border); color: var(--text); font-size: 11px; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
+.multi-actions button:hover { border-color: var(--blue); color: var(--blue); }
+.multi-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.multi-opt:hover { background: var(--s3); }
+.multi-opt input { cursor: pointer; accent-color: var(--blue); }
+.multi-opt .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
 /* Tabs */
 .tabs { background: var(--s1); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; gap: 4px; flex-shrink: 0; overflow-x: auto; }
 .tab { padding: 12px 16px; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; white-space: nowrap; }
@@ -174,7 +189,18 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
     <select id="f-cultivo"><option value="">Todos</option></select>
   </div>
   <div class="filter-group"><label>Empresa</label>
-    <select id="f-empresa"><option value="">Todas</option></select>
+    <div class="multi" id="f-empresa-multi">
+      <button class="multi-btn" id="f-empresa-btn" onclick="toggleEmpresaPanel(event)">
+        <span id="f-empresa-label">Todas</span><span class="caret">▼</span>
+      </button>
+      <div class="multi-panel" id="f-empresa-panel">
+        <div class="multi-actions">
+          <button onclick="empresaSelectAll(true)">Todas</button>
+          <button onclick="empresaSelectAll(false)">Ninguna</button>
+        </div>
+        <div id="f-empresa-opts"></div>
+      </div>
+    </div>
   </div>
   <div class="filter-group"><label>Período</label>
     <select id="f-dato">
@@ -281,6 +307,11 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
         <div class="chart-title">Resultado Comercial por Empresa (U$S/ha)</div>
         <div class="chart-sub">Positivo = vendió por encima del disponible</div>
         <canvas id="chart-rc" height="140"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Rentabilidad por Empresa (%)</div>
+        <div class="chart-sub">MN / (G. Directo + Alquiler + Gerenc + Estruc + Adm) — retorno sobre costos</div>
+        <canvas id="chart-rentabilidad" height="80"></canvas>
       </div>
       <div class="chart-box chart-full">
         <div class="chart-title">Desglose MB — Ingresos vs Gastos Directos</div>
@@ -511,6 +542,15 @@ function calcRCProm(rows) {
   return den ? num / den : 0;
 }
 
+// Rentabilidad %: Σ(MN × Sup) / Σ((GD + ALQ + Gerenc + Estruc + Adm) × Sup) × 100
+// = retorno del margen neto sobre el total de costos
+function calcRentabilidad(rows) {
+  const numMN  = rows.reduce((s,r) => s + (r.mn||0) * (r.superficie||0), 0);
+  const denCost = rows.reduce((s,r) =>
+    s + ((r.gd||0) + (r.alq||0) + (r.gerenc||0) + (r.estruc||0) + (r.adm||0)) * (r.superficie||0), 0);
+  return denCost ? numMN / denCost * 100 : 0;
+}
+
 // Filtra filas al mes más reciente de la empresa+campaña
 // Si un cultivo tiene fecha anterior al máximo, está desactualizado y se excluye
 function filterLatestMes(rows) {
@@ -666,10 +706,83 @@ async function loadData() {
 }
 
 // ─── FILTERS ──────────────────────────────────────────────────────────────────
+let TODAS_EMPRESAS = [];  // lista completa de empresas
+
+// Devuelve array de empresas seleccionadas (vacío = todas)
+function getSelectedEmpresas() {
+  const checks = document.querySelectorAll('#f-empresa-opts input[type=checkbox]:checked');
+  const sel = [...checks].map(c => c.value);
+  // Si están todas tildadas o ninguna, equivale a "todas"
+  return (sel.length === 0 || sel.length === TODAS_EMPRESAS.length) ? [] : sel;
+}
+
+// Devuelve UNA empresa si hay exactamente una seleccionada, sino '' (para modo "empresa vs grupo")
+function getEmpresaFiltro() {
+  const sel = getSelectedEmpresas();
+  return sel.length === 1 ? sel[0] : '';
+}
+
+function toggleEmpresaPanel(e) {
+  e.stopPropagation();
+  document.getElementById('f-empresa-panel').classList.toggle('open');
+}
+
+function empresaSelectAll(all) {
+  document.querySelectorAll('#f-empresa-opts input[type=checkbox]').forEach(c => c.checked = all);
+  onEmpresaChange();
+}
+
+function updateEmpresaLabel() {
+  const sel = [...document.querySelectorAll('#f-empresa-opts input:checked')].map(c=>c.value);
+  const lbl = document.getElementById('f-empresa-label');
+  if (sel.length === 0 || sel.length === TODAS_EMPRESAS.length) lbl.textContent = 'Todas';
+  else if (sel.length === 1) lbl.textContent = sel[0];
+  else lbl.textContent = `${sel.length} empresas`;
+}
+
+function onEmpresaChange() {
+  updateEmpresaLabel();
+  applyFilters();
+}
+
+// Cerrar el panel al hacer click afuera
+document.addEventListener('click', (e) => {
+  const multi = document.getElementById('f-empresa-multi');
+  if (multi && !multi.contains(e.target))
+    document.getElementById('f-empresa-panel')?.classList.remove('open');
+});
+
+// Pobla el dropdown de Período con los meses de la campaña seleccionada
+function populatePeriodo() {
+  const campana = document.getElementById('f-campana').value;
+  const fD = document.getElementById('f-dato');
+  const prev = fD.value;
+  fD.innerHTML = '<option value="latest">Último mes</option><option value="all">Todos los meses</option>';
+  if (campana) {
+    const meses = [...new Set(allData.filter(r=>r.campana===campana && r.mesStr).map(r=>r.mesStr))]
+      .sort((a,b)=>{ const da=parseDate(a), db=parseDate(b); return da&&db?da-db:0; });
+    if (meses.length) {
+      const og = document.createElement('optgroup');
+      og.label = 'Mes específico';
+      meses.forEach(m => {
+        const o = document.createElement('option');
+        o.value = 'mes:' + m;
+        o.textContent = m;
+        og.appendChild(o);
+      });
+      fD.appendChild(og);
+    }
+  }
+  // Mantener selección previa si sigue existiendo
+  if ([...fD.options].some(o=>o.value===prev)) fD.value = prev;
+  else fD.value = 'latest';
+}
+
 function initFilters() {
   const campanas = [...new Set(allData.map(r=>r.campana))].sort().reverse();
   const cultivos  = [...new Set(allData.map(r=>r.cultivo))].sort();
   const empresas  = [...new Set(allData.map(r=>r.empresa))].sort();
+  TODAS_EMPRESAS = empresas;
 
   const fC = document.getElementById('f-campana');
   campanas.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=c; fC.appendChild(o); });
@@ -678,17 +791,26 @@ function initFilters() {
   const fCu = document.getElementById('f-cultivo');
   cultivos.forEach(c  => { const o=document.createElement('option'); o.value=c; o.textContent=c; fCu.appendChild(o); });
 
-  const fE = document.getElementById('f-empresa');
-  empresas.forEach(e  => { const o=document.createElement('option'); o.value=e; o.textContent=e; fE.appendChild(o); });
+  // Multi-select empresa: un checkbox por empresa (todas tildadas = todas)
+  const opts = document.getElementById('f-empresa-opts');
+  opts.innerHTML = empresas.map(e => `
+    <label class="multi-opt">
+      <input type="checkbox" value="${e}" checked onchange="onEmpresaChange()">
+      <span class="dot" style="background:${col(e)}"></span>${e}
+    </label>`).join('');
+  updateEmpresaLabel();
 
-  ['f-campana','f-cultivo','f-empresa','f-dato'].forEach(id =>
-    document.getElementById(id).addEventListener('change', applyFilters));
+  populatePeriodo();
+
+  document.getElementById('f-campana').addEventListener('change', () => { populatePeriodo(); applyFilters(); });
+  document.getElementById('f-cultivo').addEventListener('change', applyFilters);
+  document.getElementById('f-dato').addEventListener('change', applyFilters);
 }
 
 function applyFilters() {
   const campana = document.getElementById('f-campana').value;
   const cultivo = document.getElementById('f-cultivo').value;
-  const empresa = document.getElementById('f-empresa').value;
+  const empresasSel = getSelectedEmpresas();   // [] = todas
   const dato    = document.getElementById('f-dato').value;
 
   document.getElementById('badge-campana').textContent = campana || 'Todas';
@@ -696,7 +818,7 @@ function applyFilters() {
   let data = allData.filter(r =>
     (!campana || r.campana === campana) &&
     (!cultivo  || r.cultivo  === cultivo) &&
-    (!empresa  || r.empresa  === empresa)
+    (empresasSel.length === 0 || empresasSel.includes(r.empresa))
   );
 
   if (dato === 'latest') {
@@ -708,7 +830,6 @@ function applyFilters() {
         groups[k] = r;
     });
     // 2. Por empresa+campaña, solo incluir cultivos del mes más reciente
-    //    (evita mezclar datos de meses distintos en el mismo análisis)
     const deduped = Object.values(groups);
     const empCampGroups = {};
     deduped.forEach(r => {
@@ -717,6 +838,10 @@ function applyFilters() {
       empCampGroups[k].push(r);
     });
     filteredData = Object.values(empCampGroups).flatMap(rows => filterLatestMes(rows));
+  } else if (dato.startsWith('mes:')) {
+    // Mes específico: tomar exactamente las filas de ese mes
+    const mesSel = dato.slice(4);
+    filteredData = data.filter(r => r.mesStr === mesSel);
   } else {
     filteredData = data;
   }
@@ -740,6 +865,32 @@ function destroyChart(id) {
 }
 
 function col(emp) { return empresaColors[emp] || '#8b949e'; }
+
+// Datos del GRUPO completo (todas las empresas) para el período/campaña/cultivo actual.
+// Se usa como referencia constante en las cards, sin importar qué empresas estén filtradas.
+function getGrupoData() {
+  const campana = document.getElementById('f-campana').value;
+  const cultivo = document.getElementById('f-cultivo').value;
+  const dato    = document.getElementById('f-dato').value;
+  let g = allData.filter(r =>
+    (!campana || r.campana === campana) && (!cultivo || r.cultivo === cultivo)
+  );
+  if (dato === 'latest') {
+    const gk = {};
+    g.forEach(r => {
+      const k=`${r.empresa}|${r.cultivo}|${r.campana}`;
+      if(!gk[k]||(r.mes&&(!gk[k].mes||r.mes>gk[k].mes))) gk[k]=r;
+    });
+    const dedup = Object.values(gk);
+    const ec = {};
+    dedup.forEach(r => { const k=`${r.empresa}|${r.campana}`; (ec[k]=ec[k]||[]).push(r); });
+    g = Object.values(ec).flatMap(rows => filterLatestMes(rows));
+  } else if (dato.startsWith('mes:')) {
+    const mesSel = dato.slice(4);
+    g = g.filter(r => r.mesStr === mesSel);
+  }
+  return g;
+}
 
 // ─── CHART OPTIONS ────────────────────────────────────────────────────────────
 function darkOpts({ yFmt, xFmt, yRange, horizontal, stacked, tooltipFmt } = {}) {
@@ -884,7 +1035,7 @@ function renderBase() {
 function renderRindes() {
   // Usar TODA la data (todas las campañas) para la tabla de rindes
   const cultivoFiltro = document.getElementById('f-cultivo').value;
-  const empresaFiltro = document.getElementById('f-empresa').value;
+  const empresaFiltro = getEmpresaFiltro();
   let base = allData.filter(r =>
     (!cultivoFiltro || r.cultivo===cultivoFiltro) &&
     (!empresaFiltro || r.empresa===empresaFiltro) &&
@@ -969,23 +1120,10 @@ function renderPosicion() {
   const data = filteredData;
   if (!data.length) return;
 
-  const empresaFiltro = document.getElementById('f-empresa').value;
+  const empresaFiltro = getEmpresaFiltro();
 
-  // Grupo: siempre de TODOS los datos del mismo filtro de campaña/cultivo (sin filtro empresa)
-  const campana = document.getElementById('f-campana').value;
-  const cultivo = document.getElementById('f-cultivo').value;
-  const dato    = document.getElementById('f-dato').value;
-  let grupoData = allData.filter(r =>
-    (!campana || r.campana === campana) && (!cultivo || r.cultivo === cultivo)
-  );
-  if (dato === 'latest') {
-    const gk = {};
-    grupoData.forEach(r => {
-      const k=`${r.empresa}|${r.cultivo}|${r.campana}`;
-      if(!gk[k]||(r.mes&&(!gk[k].mes||r.mes>gk[k].mes))) gk[k]=r;
-    });
-    grupoData = Object.values(gk);
-  }
+  // Grupo: siempre de TODOS los datos del mismo período/campaña/cultivo (sin filtro empresa)
+  const grupoData = getGrupoData();
 
   const grpVenta     = wAvgVenta(grupoData);
   const grpCobertura = wAvg(grupoData, 'pctCobertura');
@@ -1249,24 +1387,11 @@ function renderResultado() {
   const data = filteredData;
   if (!data.length) return;
 
-  const empresaFiltro = document.getElementById('f-empresa').value;
+  const empresaFiltro = getEmpresaFiltro();
   const hasEmp = !!empresaFiltro;
 
-  // Grupo: siempre sobre todos los datos (sin filtro empresa)
-  const campana = document.getElementById('f-campana').value;
-  const cultivo = document.getElementById('f-cultivo').value;
-  const dato    = document.getElementById('f-dato').value;
-  let grupoData = allData.filter(r =>
-    (!campana || r.campana === campana) && (!cultivo || r.cultivo === cultivo)
-  );
-  if (dato === 'latest') {
-    const gk = {};
-    grupoData.forEach(r => {
-      const k=`${r.empresa}|${r.cultivo}|${r.campana}`;
-      if(!gk[k]||(r.mes&&(!gk[k].mes||r.mes>gk[k].mes))) gk[k]=r;
-    });
-    grupoData = Object.values(gk);
-  }
+  // Grupo: siempre sobre todos los datos (sin filtro empresa), mismo período
+  const grupoData = getGrupoData();
 
   const grpMB   = calcMBProm(grupoData);
   const grpMN   = calcMNProm(grupoData);
@@ -1296,48 +1421,6 @@ function renderResultado() {
       ${sub}
     </div>`;
   }
-
-  // Card especial para MB Total: compara último mes vs primer mes de la campaña
-  const totalCard = () => {
-    const mainK = totalMB / 1000;
-    const cls   = mainK >= 0 ? 'blue' : 'red';
-
-    // Encontrar el primer mes de la misma empresa/campaña en allData
-    const empresa = document.getElementById('f-empresa').value;
-    const primerMesData = allData.filter(r =>
-      r.campana === campana &&
-      (!empresa || r.empresa === empresa)
-    );
-    // Deduplicar al PRIMER mes (el más antiguo) por empresa+cultivo
-    const pm = {};
-    primerMesData.forEach(r => {
-      const k = `${r.empresa}|${r.cultivo}`;
-      if (!pm[k] || (r.mes && r.mes < pm[k].mes)) pm[k] = r;
-    });
-    const primerRows = Object.values(pm);
-    const primerMBK  = primerRows.reduce((s,r) => s + r.mb * r.superficie, 0) / 1000;
-
-    const diff    = mainK - primerMBK;
-    const hasDiff = primerRows.length > 0 && primerMBK !== mainK;
-    const diffStr = hasDiff
-      ? `<span style="color:${diff>=0?'var(--green)':'var(--red)'}; font-size:11px; margin-left:4px">${diff>=0?'▲':'▼'} ${fmtUSD(Math.abs(diff))}K vs inicio campaña</span>`
-      : '';
-    const primerMes = primerRows.length
-      ? primerRows.reduce((min,r) => (!min||r.mes<min)?r.mes:min, null)?.toLocaleDateString('es-AR',{month:'short',year:'2-digit'})
-      : null;
-    const sub = hasDiff
-      ? `<div class="card-sub" style="margin-top:6px; line-height:1.6">
-           <span style="color:var(--muted)">Inicio (${primerMes||'–'}): </span>
-           <strong style="color:var(--text)">${fmtUSD(primerMBK)}K</strong> ${diffStr}
-         </div>`
-      : `<div class="card-sub">${fmt(totalHA)} ha únicas</div>`;
-
-    return `<div class="card">
-      <div class="card-label">MB Total${empresa ? ` — <span style="color:${col(empresa)}">${empresa}</span>` : ' — Grupo'}</div>
-      <div class="card-value ${cls}" style="font-size:26px">${fmtUSD(mainK)}K</div>
-      ${sub}
-    </div>`;
-  };
 
   document.getElementById('cards-resultado').innerHTML =
     resCard('MB Prom.', mainMB, grpMB) +
@@ -1380,6 +1463,26 @@ function renderResultado() {
         borderColor:rcVals.map(v=>v>=0?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 }]
     },
     options:darkOpts({yFmt:v=>fmtUSD(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtUSD(ctx.raw)}`})
+  });
+
+  // Rentabilidad: MN / (GD + ALQ + Gerenc + Estruc + Adm) × 100
+  const rentVals = empresas.map(e=>calcRentabilidad(empMap[e]));
+  const grpRent  = calcRentabilidad(data);
+  destroyChart('rentabilidad');
+  charts['rentabilidad'] = new Chart(document.getElementById('chart-rentabilidad'), {
+    type:'bar',
+    data:{
+      labels:empresas,
+      datasets:[
+        { label:'Rentabilidad', data:rentVals,
+          backgroundColor:rentVals.map(v=>v>=0?'#3fb95088':'#f8514988'),
+          borderColor:rentVals.map(v=>v>=0?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 },
+        { label:`Prom. grupo (${fmtPct(grpRent)})`,
+          data:empresas.map(()=>grpRent), type:'line',
+          borderColor:'#ffffff44', borderDash:[6,3], pointRadius:0, fill:false }
+      ]
+    },
+    options:darkOpts({yFmt:v=>fmtPct(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtPct(ctx.raw)}`})
   });
 
   const inData     = empresas.map(e => wAvg(empMap[e],'ingresos'));
@@ -1683,7 +1786,7 @@ function updateScenarioTable() {
 function renderEvolucion() {
   const campana = document.getElementById('f-campana').value;
   const cultivo = document.getElementById('f-cultivo').value;
-  const empresa = document.getElementById('f-empresa').value;
+  const empresa = getEmpresaFiltro();
 
   const data = allData.filter(r =>
     (!campana||r.campana===campana)&&(!cultivo||r.cultivo===cultivo)&&(!empresa||r.empresa===empresa)
