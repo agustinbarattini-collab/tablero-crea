@@ -263,6 +263,12 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
       <div class="chart-title">Evolución del Rinde Estimado en la Campaña</div>
       <div class="chart-sub">Promedio ponderado del grupo, mes a mes — campaña seleccionada en el filtro</div>
       <canvas id="chart-evol-rinde" height="80"></canvas>
+      <div style="font-size:11px; color:var(--muted); margin-top:10px;">
+        🚦 El valor al final de cada línea es la última estimación, con color según tendencia vs el primer mes:
+        <span style="color:var(--green)">▲ mejora</span> ·
+        <span style="color:var(--yellow)">▬ estable</span> ·
+        <span style="color:var(--red)">▼ baja</span>
+      </div>
     </div>
 
   </div>
@@ -288,6 +294,19 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
         <div class="chart-title">Posición Comercial — Comparativo Grupo</div>
         <div class="chart-sub">Cada punto = una empresa/cultivo. Mejor posición: arriba a la derecha</div>
         <canvas id="chart-scatter" height="70"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+          <div>
+            <div class="chart-title" style="margin-bottom:2px;">Evolución de Precios por Cultivo</div>
+            <div class="chart-sub" style="margin:0;">Disponible (precio del mes) vs Ref. Acumulado (promedio que construye) vs tu Precio de Venta</div>
+          </div>
+          <div class="filter-group">
+            <label>Cultivo</label>
+            <select id="f-precio-cultivo" onchange="renderPrecios()"></select>
+          </div>
+        </div>
+        <canvas id="chart-precios-evol" height="80"></canvas>
       </div>
     </div>
     <div class="chart-box">
@@ -480,6 +499,14 @@ function cultColor(cultivo, fallbackIndex = 0) {
   const key = String(cultivo||'').toLowerCase().trim()
     .normalize('NFD').replace(/[̀-ͯ]/g,'');
   return CULTIVO_COLORS[key] || EMPRESA_COLORS[fallbackIndex % EMPRESA_COLORS.length];
+}
+
+// Devuelve '#000' o '#fff' según cuál contrasta mejor con el color de fondo dado
+function contrastText(hex) {
+  const h = String(hex||'').replace('#','');
+  if (h.length < 6) return '#fff';
+  const r=parseInt(h.substr(0,2),16), g=parseInt(h.substr(2,2),16), b=parseInt(h.substr(4,2),16);
+  return (0.299*r + 0.587*g + 0.114*b) > 150 ? '#000' : '#fff';
 }
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
@@ -1013,9 +1040,35 @@ function renderBase() {
   // Etiquetas: empresas + GRUPO al final
   const labelsEmp = [...empresas, 'GRUPO'];
   // Para cada cultivo, el % que representa en cada empresa (y en el grupo)
+  // Plugin: dibuja el % dentro de cada segmento (si entra el número)
+  const segLabelPlugin = {
+    id: 'segLabels',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      ctx.save();
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      chart.data.datasets.forEach((ds, di) => {
+        if (chart.getDatasetMeta(di).hidden) return;
+        const meta = chart.getDatasetMeta(di);
+        meta.data.forEach((bar, i) => {
+          const val = ds.data[i];
+          if (!val || val < 4) return;               // ignorar segmentos chicos
+          const h = Math.abs(bar.base - bar.y);
+          if (h < 13) return;                          // no entra el texto
+          ctx.fillStyle = contrastText(ds.borderColor);
+          ctx.fillText(Math.round(val) + '%', bar.x, (bar.y + bar.base) / 2);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
   destroyChart('sup-empresa');
   charts['sup-empresa'] = new Chart(document.getElementById('chart-sup-empresa'), {
     type:'bar',
+    plugins: [segLabelPlugin],
     data:{
       labels: labelsEmp,
       datasets: cultivos.map(c => ({
@@ -1109,9 +1162,58 @@ function renderRindes() {
   const cultColors2 = {};
   cultEvol.forEach((c,i)=> cultColors2[c] = cultColor(c, i));
 
+  // Tendencia por cultivo: color y flecha según primer vs último valor
+  const trend = {};
+  cultEvol.forEach(c => {
+    const serie = meses.map(mes => {
+      const rs = evolData.filter(r=>r.cultivo===c && r.mesStr===mes);
+      return rs.length ? wAvg(rs,'rendimiento') : null;
+    }).filter(v => v != null && v > 0);
+    const ini = serie[0], fin = serie[serie.length-1];
+    const pct = ini ? (fin-ini)/ini*100 : 0;
+    let color, arrow;
+    if (pct > 2)       { color = '#3fb950'; arrow = '▲'; }
+    else if (pct < -2) { color = '#f85149'; arrow = '▼'; }
+    else               { color = '#d29922'; arrow = '▬'; }
+    trend[c] = { color, arrow, fin };
+  });
+
+  // Plugin: dibuja el valor + flecha al final de cada línea, coloreado por tendencia
+  const endLabelPlugin = {
+    id: 'endLabels',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      ctx.save();
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const placed = [];  // para evitar solapamiento vertical
+      chart.data.datasets.forEach((ds, di) => {
+        const meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        // último punto con valor
+        let last = null;
+        for (let i = meta.data.length - 1; i >= 0; i--) {
+          if (ds.data[i] != null) { last = meta.data[i]; break; }
+        }
+        if (!last) return;
+        const t = trend[ds.label] || { color: ds.borderColor, arrow: '' };
+        let y = last.y;
+        // separar si está muy pegado a otra etiqueta ya colocada
+        while (placed.some(p => Math.abs(p - y) < 12)) y -= 12;
+        placed.push(y);
+        const txt = `${t.arrow} ${fmt(t.fin,1)}t`;
+        ctx.fillStyle = t.color;
+        ctx.fillText(txt, last.x + 8, y);
+      });
+      ctx.restore();
+    }
+  };
+
   destroyChart('evol-rinde');
   charts['evol-rinde'] = new Chart(document.getElementById('chart-evol-rinde'), {
     type:'line',
+    plugins: [endLabelPlugin],
     data:{
       labels: meses,
       datasets: cultEvol.map(c => ({
@@ -1126,6 +1228,7 @@ function renderRindes() {
     },
     options:{
       responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      layout:{ padding:{ right:56 } },   // espacio para las etiquetas al final
       plugins:{
         legend:{ labels:{color:'#8b949e',boxWidth:10,font:{size:10}} },
         tooltip:{ mode:'index', intersect:false,
@@ -1231,6 +1334,8 @@ function renderPosicion() {
   const avgCobertura = grpCobertura;
   const avgPVenta    = grpPVenta;
   const avgPDisp     = grpPDisp;
+  const avgPProd     = wAvg(grupoData, 'pProd');
+  const avgPRef      = wAvg(grupoData, 'avgPDispAcum');
 
   const empMap = groupBy(data, 'empresa');
   const empresas = Object.keys(empMap).sort();
@@ -1331,6 +1436,8 @@ function renderPosicion() {
     const cob      = wAvg(eRows,'pctCobertura');
     const pv       = wAvgPVenta(eRows);
     const pd       = wAvg(eRows,'pDisp');
+    const pprod    = wAvg(eRows,'pProd');
+    const pref     = wAvg(eRows,'avgPDispAcum');
     const rc       = calcRCProm(eRows);
     const ha       = eRows.reduce((s,r)=>s+r.superficie,0);
     const ventaCls = venta>avgVenta?'above':venta<avgVenta-5?'below':'at';
@@ -1342,10 +1449,10 @@ function renderPosicion() {
       <td><span class="dot" style="background:${col(e)}"></span><strong>${e}</strong>
         <span id="arrow-${e}" style="font-size:10px;color:var(--muted);margin-left:4px">▶</span></td>
       <td class="${ventaCls}">${fmtPct(venta)}</td>
-      <td>–</td>
+      <td>${pprod > 0 ? fmtUSD(pprod) : '<span style="color:var(--muted)">–</span>'}</td>
       <td>${pv > 0 ? fmtUSD(pv) : '<span style="color:var(--muted)">–</span>'}</td>
       <td>${pd > 0 ? fmtUSD(pd) : '<span style="color:var(--muted)">–</span>'}</td>
-      <td><span style="color:var(--muted)">–</span></td>
+      <td>${pref > 0 ? `<span style="color:var(--purple)">${fmtUSD(pref)}</span>` : '<span style="color:var(--muted)">–</span>'}</td>
       <td class="${rcCls}" style="font-weight:700">${rc>=0?'+':''}${fmtUSD(rc)}</td>
       <td class="${cobCls}">${fmtPct(cob)}</td>
       <td>${fmt(ha)} ha</td>
@@ -1386,16 +1493,84 @@ function renderPosicion() {
         <tr style="border-top:2px solid var(--border); background:var(--s2)">
           <td><strong>GRUPO</strong></td>
           <td><strong>${fmtPct(avgVenta)}</strong></td>
-          <td>–</td>
+          <td><strong>${avgPProd>0?fmtUSD(avgPProd):'–'}</strong></td>
           <td><strong>${fmtUSD(avgPVenta)}</strong></td>
           <td><strong>${fmtUSD(avgPDisp)}</strong></td>
-          <td><span style="color:var(--muted)">–</span></td>
+          <td><strong style="color:var(--purple)">${avgPRef>0?fmtUSD(avgPRef):'–'}</strong></td>
           <td class="${grpRC>=0?'above':'below'}"><strong>${grpRC>=0?'+':''}${fmtUSD(grpRC)}</strong></td>
           <td><strong>${fmtPct(avgCobertura)}</strong></td>
           <td><strong>${fmt(totalHa)} ha</strong></td>
         </tr>
       </tbody>
     </table>`;
+
+  // Gráfico de evolución de precios por cultivo
+  renderPrecios();
+}
+
+// Evolución mensual de precios (Prod / Disp / Ref.Acum / Venta) para un cultivo
+function renderPrecios() {
+  const campana = document.getElementById('f-campana').value;
+  const empresasSel = getSelectedEmpresas();   // [] = todas
+
+  // Poblar el selector de cultivo con los disponibles en la campaña actual
+  const sel = document.getElementById('f-precio-cultivo');
+  const cultivosCamp = [...new Set(allData.filter(r =>
+    (!campana || r.campana===campana) &&
+    (empresasSel.length===0 || empresasSel.includes(r.empresa))
+  ).map(r=>r.cultivo))].sort();
+  const prev = sel.value;
+  if (sel.dataset.filled !== cultivosCamp.join('|')) {
+    sel.innerHTML = cultivosCamp.map(c=>`<option value="${c}">${c}</option>`).join('');
+    sel.dataset.filled = cultivosCamp.join('|');
+    if (cultivosCamp.includes(prev)) sel.value = prev;
+  }
+  const cultivo = sel.value || cultivosCamp[0];
+  if (!cultivo) { destroyChart('precios-evol'); return; }
+
+  // Datos del cultivo elegido en la campaña, filtrando empresas seleccionadas
+  const data = allData.filter(r =>
+    (!campana || r.campana===campana) &&
+    r.cultivo===cultivo &&
+    (empresasSel.length===0 || empresasSel.includes(r.empresa))
+  );
+  const meses = [...new Set(data.map(r=>r.mesStr).filter(Boolean))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+
+  const serieProd = meses.map(m => { const rs=data.filter(r=>r.mesStr===m && r.pProd>0); return rs.length?wAvg(rs,'pProd'):null; });
+  const serieDisp = meses.map(m => { const rs=data.filter(r=>r.mesStr===m && r.pDisp>0); return rs.length?wAvg(rs,'pDisp'):null; });
+  const serieRef  = meses.map(m => { const rs=data.filter(r=>r.mesStr===m && r.avgPDispAcum>0); return rs.length?wAvg(rs,'avgPDispAcum'):null; });
+  const serieVta  = meses.map(m => { const rs=data.filter(r=>r.mesStr===m); const v=wAvgPVenta(rs); return v>0?v:null; });
+
+  destroyChart('precios-evol');
+  charts['precios-evol'] = new Chart(document.getElementById('chart-precios-evol'), {
+    type:'line',
+    data:{
+      labels: meses,
+      datasets:[
+        { label:'P. Disponible (mes)', data:serieDisp,
+          borderColor:'#d29922', backgroundColor:'#d2992222', borderWidth:2.5, fill:false, tension:0.3, spanGaps:true, pointRadius:3 },
+        { label:'P. Ref. Acumulado',   data:serieRef,
+          borderColor:'#bc8cff', backgroundColor:'#bc8cff22', borderWidth:2.5, fill:false, tension:0.3, spanGaps:true, pointRadius:3 },
+        { label:'P. Producción',       data:serieProd,
+          borderColor:'#58a6ff', backgroundColor:'#58a6ff22', borderWidth:1.5, borderDash:[5,3], fill:false, tension:0.3, spanGaps:true, pointRadius:2 },
+        { label:'P. Venta',            data:serieVta,
+          borderColor:'#3fb950', backgroundColor:'#3fb95022', borderWidth:2.5, fill:false, tension:0.3, spanGaps:true, pointRadius:3 },
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      plugins:{
+        legend:{ labels:{color:'#8b949e',boxWidth:14,font:{size:11}} },
+        tooltip:{ mode:'index', intersect:false,
+          callbacks:{ label:ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmtUSD(ctx.raw)}` : null } }
+      },
+      scales:{
+        x:{ ticks:{color:'#8b949e',font:{size:10}}, grid:{color:'#21262d'} },
+        y:{ ticks:{color:'#8b949e',font:{size:11},callback:v=>fmtUSD(v)}, grid:{color:'#21262d'} }
+      }
+    }
+  });
 }
 
 window.toggleCultivos = function(empresa) {
@@ -1547,6 +1722,31 @@ function renderResultado() {
     };
   }
 
+  // Plugin: valor dentro de cada segmento (si entra)
+  const segValuePlugin = {
+    id: 'segValues',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      ctx.save();
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      chart.data.datasets.forEach((ds, di) => {
+        if (chart.getDatasetMeta(di).hidden) return;
+        const meta = chart.getDatasetMeta(di);
+        meta.data.forEach((bar, i) => {
+          const raw = ds.data[i];
+          if (raw == null || Math.abs(raw) < 1) return;
+          const h = Math.abs(bar.base - bar.y);
+          if (h < 14) return;                       // no entra el texto
+          ctx.fillStyle = contrastText(ds.borderColor);
+          ctx.fillText(fmt(Math.abs(Math.round(raw))), bar.x, (bar.y + bar.base)/2);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
   // Opciones compartidas para desglose
   const tooltipDesglose = {
     mode: 'index',        // muestra todos los datasets de esa columna
@@ -1575,7 +1775,7 @@ function renderResultado() {
   destroyChart('desglose-mb');
   charts['desglose-mb'] = new Chart(document.getElementById('chart-desglose-mb'), {
     type:'bar',
-    plugins: [stackTotalPlugin(mbVals)],
+    plugins: [stackTotalPlugin(mbVals), segValuePlugin],
     data:{
       labels: empresas,
       datasets:[
@@ -1596,7 +1796,7 @@ function renderResultado() {
   destroyChart('desglose-mn');
   charts['desglose-mn'] = new Chart(document.getElementById('chart-desglose-mn'), {
     type:'bar',
-    plugins: [stackTotalPlugin(mnVals)],
+    plugins: [stackTotalPlugin(mnVals), segValuePlugin],
     data:{
       labels: empresas,
       datasets:[
