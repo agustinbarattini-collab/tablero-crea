@@ -324,14 +324,18 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
         <canvas id="chart-mb" height="140"></canvas>
       </div>
       <div class="chart-box">
-        <div class="chart-title">Resultado Comercial por Empresa (U$S/ha)</div>
-        <div class="chart-sub">Positivo = vendió por encima del disponible</div>
-        <canvas id="chart-rc" height="140"></canvas>
+        <div class="chart-title">Margen Neto por Empresa (U$S/ha)</div>
+        <canvas id="chart-mn" height="140"></canvas>
       </div>
       <div class="chart-box chart-full">
         <div class="chart-title">Rentabilidad por Empresa (%)</div>
         <div class="chart-sub">MN / (G. Directo + Alquiler + Gerenc + Estruc + Adm) — retorno sobre costos</div>
         <canvas id="chart-rentabilidad" height="80"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Resultado Comercial por Empresa (U$S/ha)</div>
+        <div class="chart-sub">Positivo = vendió por encima del disponible</div>
+        <canvas id="chart-rc" height="80"></canvas>
       </div>
       <div class="chart-box chart-full">
         <div class="chart-title">Desglose MB — Ingresos vs Gastos Directos</div>
@@ -1645,6 +1649,24 @@ function renderResultado() {
           borderColor:mbVals.map(v=>v>=0?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 },
         { label:`Prom. grupo (${fmtUSD(avgMB)})`,
           data:empresas.map(()=>avgMB), type:'line',
+          borderColor:'#ffffff44', borderDash:[6,3], pointRadius:0, fill:false }
+      ]
+    },
+    options:darkOpts({yFmt:v=>fmtUSD(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtUSD(ctx.raw)}`})
+  });
+
+  const mnBarVals = empresas.map(e=>calcMNProm(empMap[e]));
+  destroyChart('mn');
+  charts['mn'] = new Chart(document.getElementById('chart-mn'), {
+    type:'bar',
+    data:{
+      labels:empresas,
+      datasets:[
+        { label:'MN (U$S/ha)', data:mnBarVals,
+          backgroundColor:mnBarVals.map(v=>v>=0?'#3fb95088':'#f8514988'),
+          borderColor:mnBarVals.map(v=>v>=0?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 },
+        { label:`Prom. grupo (${fmtUSD(grpMN)})`,
+          data:empresas.map(()=>grpMN), type:'line',
           borderColor:'#ffffff44', borderDash:[6,3], pointRadius:0, fill:false }
       ]
     },
