@@ -218,6 +218,7 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
   <div class="tab" data-tab="evol-resultado">📉 Evolución Resultado</div>
   <div class="tab" data-tab="escenarios">🎯 Escenarios de Precio</div>
   <div class="tab" data-tab="evolucion">📈 Evolución</div>
+  <div class="tab" data-tab="analisis">🔍 Análisis</div>
   <div class="tab" data-tab="tabla">📋 Tabla Detalle</div>
 </div>
 
@@ -424,6 +425,46 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
     </div>
   </div>
 
+  <!-- TAB: Análisis Comparativo -->
+  <div class="tab-panel" id="tab-analisis">
+    <div style="display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:18px;">
+      <div class="filter-group"><label>Empresa A</label>
+        <select id="an-empA" onchange="renderAnalisis()"></select>
+      </div>
+      <button class="btn" onclick="swapAnalisis()" title="Intercambiar" style="padding:6px 12px;">⇄</button>
+      <div class="filter-group"><label>Empresa B</label>
+        <select id="an-empB" onchange="renderAnalisis()"></select>
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-left:auto; max-width:340px;">
+        Comparación del último mes de la campaña seleccionada. El objetivo es entender de un vistazo por qué una empresa tiene mejor resultado.
+      </div>
+    </div>
+
+    <div class="cards" id="an-cards"></div>
+
+    <div class="chart-box" style="margin-bottom:16px;">
+      <div class="chart-title">💡 Principales diferencias</div>
+      <div id="an-insights" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="chart-box">
+        <div class="chart-title">Indicadores Clave (U$S/ha ponderado)</div>
+        <div id="an-tabla-ind" style="overflow-x:auto; margin-top:4px;"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">Comercialización & Rindes</div>
+        <div id="an-tabla-com" style="overflow-x:auto; margin-top:4px;"></div>
+      </div>
+    </div>
+
+    <div class="chart-box">
+      <div class="chart-title">Comparación por Cultivo</div>
+      <div class="chart-sub">Superficie, rendimiento y Margen Bruto de cada cultivo, ordenado de mayor a menor MB — resaltado quién tiene mejor MB</div>
+      <div id="an-tabla-cult" style="overflow-x:auto; margin-top:4px;"></div>
+    </div>
+  </div>
+
   <!-- TAB: Tabla Detalle -->
   <div class="tab-panel" id="tab-tabla">
     <div class="toolbar">
@@ -575,6 +616,14 @@ function sumHasSin2da(rows) {
   return rows.reduce((s,r) => s + Math.min(r.hasSin2da||0, r.superficie||0), 0);
 }
 
+// Promedio de un campo por hectárea FÍSICA: Σ(campo × Sup) / Σ(Has sin 2da)
+// (mismo criterio que MB/MN Prom — descuenta las segundas para no contar doble la superficie)
+function wAvgFisica(rows, key) {
+  const num = rows.reduce((s,r) => s + (r[key]||0) * (r.superficie||0), 0);
+  const den = sumHasSin2da(rows);
+  return den ? num / den : 0;
+}
+
 // MB Prom: Σ(MB × Sup) / Σ(Has sin 2da)
 function calcMBProm(rows) {
   const num = rows.reduce((s,r) => s + (r.mb||0) * (r.superficie||0), 0);
@@ -676,6 +725,8 @@ async function loadData() {
         mbProm:     parseNum(row['MB Prom']),
         interes:      parseNum(row['Interes'] || row['Interés'] || 0),
         intermedias:  parseNum(row['Intermedias'] || 0),
+        fleteSheet:   parseNum(row['Flete'] || 0),              // U$S/tn desde la planilla
+        gtosComSheet: parsePct(row['Gtos com'] || row['Gtos Com'] || 0) / 100, // factor (95% → 0.95)
         resultadoComercial: parseNum(row['Resultado Comercial']),
         hasSin2da:  parseNum(row['Has sin 2da']),
         dato:       (row['Dato'] || '').trim(),
@@ -686,8 +737,10 @@ async function loadData() {
     // ── Tablas de referencia: Flete y Gastos Comerciales ────────────────────
     const FLETE_CAMPANA = {
       '2020-2021': 20, '2021-2022': 25, '2022-2023': 32,
-      '2023-2024': 30, '2024-2025': 35, '2025-2026': 35,
+      '2023-2024': 30, '2024-2025': 35, '2025-2026': 35, '2026-2027': 35,
     };
+    // Si una campaña no está en la tabla, usar el flete de la campaña más reciente cargada
+    const FLETE_FALLBACK = FLETE_CAMPANA[Object.keys(FLETE_CAMPANA).sort().pop()];
     // Gastos comerciales por cultivo (factor multiplicador sobre el diferencial de precio)
     const GTOS_COM = {
       'Trigo':           0.95,
@@ -724,8 +777,10 @@ async function loadData() {
         sumPDisp += r.pDisp;
         const avgPDispAcum = sumPDisp / (i + 1);
         r.avgPDispAcum = avgPDispAcum;
-        const flete    = FLETE_CAMPANA[r.campana] ?? 0;
-        const gtosCom  = GTOS_COM[r.cultivo]      ?? 1;
+        // Flete y Gtos com se toman de la planilla; si esa fila no los tiene cargados
+        // (datos viejos, antes de agregar la columna), se usa el valor de referencia.
+        const flete   = r.fleteSheet   > 0 ? r.fleteSheet   : (FLETE_CAMPANA[r.campana] ?? FLETE_FALLBACK);
+        const gtosCom = r.gtosComSheet > 0 ? r.gtosComSheet : (GTOS_COM[r.cultivo]      ?? 1);
         r.flete   = flete;
         r.gtosCom = gtosCom;
         // RC = (((P.Prod × GtosCom%) - Flete) - ((P.Ref.Acum × GtosCom%) - Flete)) × Rendimiento
@@ -913,6 +968,7 @@ function renderAll() {
   const activeTab = document.querySelector('.tab.active')?.dataset.tab;
   if (activeTab === 'evolucion') renderEvolucion();
   if (activeTab === 'evol-resultado') renderEvolResultado();
+  if (activeTab === 'analisis') renderAnalisis();
 }
 
 function destroyChart(id) {
@@ -1585,6 +1641,14 @@ window.toggleCultivos = function(empresa) {
   if (arrow) arrow.textContent = isHidden ? '▼' : '▶';
 }
 
+window.toggleAnCom = function(key) {
+  const rows = document.querySelectorAll(`.ancom-${key}`);
+  const arrow = document.getElementById(`ancom-arrow-${key}`);
+  const isHidden = rows[0]?.style.display === 'none';
+  rows.forEach(r => r.style.display = isHidden ? 'table-row' : 'none');
+  if (arrow) arrow.textContent = isHidden ? '▼' : '▶';
+}
+
 // ─── TAB: RESULTADO & MB ──────────────────────────────────────────────────────
 function renderResultado() {
   const data = filteredData;
@@ -2169,6 +2233,326 @@ function renderEvolResultado() {
   });
 }
 
+// ─── TAB: ANÁLISIS COMPARATIVO ────────────────────────────────────────────────
+// Snapshot de una empresa: filas del último mes (o mes elegido) en la campaña actual
+function getEmpresaSnapshot(empresa) {
+  const campana = document.getElementById('f-campana').value;
+  const dato    = document.getElementById('f-dato').value;
+  let d = allData.filter(r => (!campana || r.campana===campana) && r.empresa===empresa);
+  if (dato === 'latest' || dato === 'all' || !dato) {
+    // último mes con datos de la empresa
+    const gk = {};
+    d.forEach(r => { const k=r.cultivo; if(!gk[k]||(r.mes&&(!gk[k].mes||r.mes>gk[k].mes))) gk[k]=r; });
+    d = filterLatestMes(Object.values(gk));
+  } else if (dato.startsWith('mes:')) {
+    d = d.filter(r => r.mesStr === dato.slice(4));
+  }
+  return d;
+}
+
+function swapAnalisis() {
+  const a = document.getElementById('an-empA'), b = document.getElementById('an-empB');
+  const tmp = a.value; a.value = b.value; b.value = tmp;
+  renderAnalisis();
+}
+
+function renderAnalisis() {
+  const campana  = document.getElementById('f-campana').value;
+  const empresas = [...new Set(allData.filter(r=>!campana||r.campana===campana).map(r=>r.empresa))].sort();
+  if (empresas.length < 2) {
+    document.getElementById('an-insights').innerHTML = '<span style="color:var(--muted)">Se necesitan al menos dos empresas.</span>';
+    return;
+  }
+
+  // Poblar selectores (default: mejor MN vs peor MN)
+  const selA = document.getElementById('an-empA'), selB = document.getElementById('an-empB');
+  if (selA.dataset.filled !== empresas.join('|')) {
+    const mnByEmp = empresas.map(e => ({e, mn: calcMNProm(getEmpresaSnapshot(e))})).sort((a,b)=>b.mn-a.mn);
+    const opts = empresas.map(e=>`<option value="${e}">${e}</option>`).join('');
+    selA.innerHTML = opts; selB.innerHTML = opts;
+    selA.value = mnByEmp[0].e;
+    selB.value = mnByEmp[mnByEmp.length-1].e;
+    selA.dataset.filled = empresas.join('|'); selB.dataset.filled = empresas.join('|');
+  }
+  const A = selA.value, B = selB.value;
+  const rowsA = getEmpresaSnapshot(A), rowsB = getEmpresaSnapshot(B);
+  if (!rowsA.length || !rowsB.length) {
+    document.getElementById('an-insights').innerHTML = '<span style="color:var(--muted)">Sin datos para la comparación en esta campaña.</span>';
+    document.getElementById('an-cards').innerHTML = '';
+    document.getElementById('an-tabla-ind').innerHTML = '';
+    document.getElementById('an-tabla-com').innerHTML = '';
+    document.getElementById('an-tabla-cult').innerHTML = '';
+    return;
+  }
+
+  // ── Métricas ponderadas ──
+  // Componentes ponderados por hectárea física (Has sin 2da) → aditivos con MB/MN
+  const met = rows => ({
+    mn:   calcMNProm(rows),
+    mb:   calcMBProm(rows),
+    rent: calcRentabilidad(rows),
+    in:   wAvgFisica(rows,'ingresos'),
+    gd:   wAvgFisica(rows,'gd'),
+    alq:  wAvgFisica(rows,'alq'),   // alquiler / superficie física
+    ovh:  wAvgFisica(rows,'gerenc') + wAvgFisica(rows,'estruc') + wAvgFisica(rows,'adm'),
+    interm: wAvgFisica(rows,'intermedias'),
+    pctV: wAvgVenta(rows),
+    pVta: wAvgPVenta(rows),
+    sup:  rows.reduce((s,r)=>s+r.superficie,0),
+  });
+  const mA = met(rowsA), mB = met(rowsB);
+  const cA = col(A), cB = col(B);
+
+  // ── Cards ──
+  const dMN = mA.mn - mB.mn;
+  const ganador = dMN >= 0 ? A : B;
+  document.getElementById('an-cards').innerHTML = `
+    <div class="card">
+      <div class="card-label">MN — <span style="color:${cA}">${A}</span></div>
+      <div class="card-value ${mA.mn>=0?'green':'red'}">${fmtUSD(mA.mn)}/ha</div>
+      <div class="card-sub">Rentabilidad ${fmtPct(mA.rent)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">MN — <span style="color:${cB}">${B}</span></div>
+      <div class="card-value ${mB.mn>=0?'green':'red'}">${fmtUSD(mB.mn)}/ha</div>
+      <div class="card-sub">Rentabilidad ${fmtPct(mB.rent)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Diferencia de MN</div>
+      <div class="card-value ${dMN>=0?'green':'red'}" style="font-size:26px">${dMN>=0?'+':''}${fmtUSD(dMN)}/ha</div>
+      <div class="card-sub">Mejor: <strong style="color:${col(ganador)}">${ganador}</strong></div>
+    </div>`;
+
+  // ── Insights: descomposición del gap de MN por componente ──
+  // MN = IN − GD − ALQ − OVH + Intermedias (todo por ha física).  Δ = suma de contribuciones.
+  const comps = [
+    { lbl:'Ingresos', a:mA.in, b:mB.in, higherBetter:true,
+      phrase:(w,hi,lo)=>`<strong>Ingresos:</strong> <strong style="color:${col(w)}">${w}</strong> genera más ingresos (${fmtUSD(hi)} vs ${fmtUSD(lo)}).` },
+    { lbl:'Gastos Directos', a:mA.gd, b:mB.gd, higherBetter:false,
+      phrase:(w,hi,lo)=>`<strong>Gastos Directos:</strong> <strong style="color:${col(w)}">${w}</strong> tiene menos gastos directos (${fmtUSD(lo)} vs ${fmtUSD(hi)}).` },
+    { lbl:'Alquiler', a:mA.alq, b:mB.alq, higherBetter:false,
+      phrase:(w,hi,lo)=>`<strong>Alquiler:</strong> <strong style="color:${col(w)}">${w}</strong> paga menos alquiler (${fmtUSD(lo)} vs ${fmtUSD(hi)}).` },
+    { lbl:'Gastos de Estructura', a:mA.ovh, b:mB.ovh, higherBetter:false,
+      phrase:(w,hi,lo)=>`<strong>Gastos de Estructura:</strong> <strong style="color:${col(w)}">${w}</strong> tiene menos gastos de estructura (${fmtUSD(lo)} vs ${fmtUSD(hi)}).` },
+    { lbl:'Intermedias', a:mA.interm, b:mB.interm, higherBetter:true,
+      phrase:(w,hi,lo)=>`<strong>Intermedias:</strong> aporta ${fmtUSD(hi-lo)}/ha a favor de <strong style="color:${col(w)}">${w}</strong>.` },
+  ].map(c => ({ ...c, contrib: (c.higherBetter ? (c.a-c.b) : -(c.a-c.b)) }))
+   .sort((x,y)=>Math.abs(y.contrib)-Math.abs(x.contrib));
+
+  const bullets = [];
+  // Siempre lidera con la Empresa A (el primer selector) — cambia al intercambiar
+  bullets.push(`<strong style="color:${cA}">${A}</strong> tiene un Margen Neto ${fmtUSD(Math.abs(dMN))}/ha ${dMN>=0?'mayor':'menor'} que <strong style="color:${cB}">${B}</strong>.`);
+  // Top 2 drivers
+  comps.slice(0,2).forEach(c => {
+    if (Math.abs(c.contrib) < 1) return;
+    const winner = c.contrib >= 0 ? A : B;
+    const hi = Math.max(c.a, c.b), lo = Math.min(c.a, c.b);
+    bullets.push(c.phrase(winner, hi, lo));
+  });
+  // Comercialización (mostrar valor del ganador primero)
+  const dP = mA.pVta - mB.pVta, dV = mA.pctV - mB.pctV;
+  if (mA.pVta>0 && mB.pVta>0 && Math.abs(dP) >= 3) {
+    const mejor = dP>=0?A:B, hi=Math.max(mA.pVta,mB.pVta), lo=Math.min(mA.pVta,mB.pVta);
+    bullets.push(`<strong>Comercialización:</strong> <strong style="color:${col(mejor)}">${mejor}</strong> vende a mejor precio (${fmtUSD(hi)} vs ${fmtUSD(lo)}).`);
+  }
+  if (Math.abs(dV) >= 5) {
+    const mejor = dV>=0?A:B, hi=Math.max(mA.pctV,mB.pctV), lo=Math.min(mA.pctV,mB.pctV);
+    bullets.push(`<strong>Avance de ventas:</strong> <strong style="color:${col(mejor)}">${mejor}</strong> tiene más vendido (${fmtPct(hi)} vs ${fmtPct(lo)}).`);
+  }
+  // Rendimiento: cultivo común de mayor superficie
+  const cultsA = new Set(rowsA.map(r=>r.cultivo)), cultsB = new Set(rowsB.map(r=>r.cultivo));
+  const comunes = [...cultsA].filter(c=>cultsB.has(c));
+  if (comunes.length) {
+    const cult = comunes.map(c => ({c, sup: rowsA.filter(r=>r.cultivo===c).reduce((s,r)=>s+r.superficie,0)}))
+      .sort((x,y)=>y.sup-x.sup)[0].c;
+    const rA = wAvg(rowsA.filter(r=>r.cultivo===cult),'rendimiento');
+    const rB = wAvg(rowsB.filter(r=>r.cultivo===cult),'rendimiento');
+    if (Math.abs(rA-rB) >= 0.2) {
+      const mejor = rA>=rB?A:B, hi=Math.max(rA,rB), lo=Math.min(rA,rB);
+      bullets.push(`<strong>Rendimiento (${cult}):</strong> <strong style="color:${col(mejor)}">${mejor}</strong> rinde mejor (${fmt(hi,1)}t vs ${fmt(lo,1)}t).`);
+    }
+  }
+  // Mix: mayor diferencia de participación de superficie
+  const allCults = [...new Set([...cultsA, ...cultsB])];
+  const shareDiffs = allCults.map(c => {
+    const sA = rowsA.filter(r=>r.cultivo===c).reduce((s,r)=>s+r.superficie,0)/mA.sup*100;
+    const sB = rowsB.filter(r=>r.cultivo===c).reduce((s,r)=>s+r.superficie,0)/mB.sup*100;
+    return { c, d: sA-sB };
+  }).sort((x,y)=>Math.abs(y.d)-Math.abs(x.d));
+  if (shareDiffs.length && Math.abs(shareDiffs[0].d) >= 8) {
+    const s = shareDiffs[0];
+    const mas = s.d>=0?A:B;
+    bullets.push(`<strong>Mix de cultivos:</strong> <strong style="color:${col(mas)}">${mas}</strong> dedica ${fmtPct(Math.abs(s.d))} más de su superficie a ${s.c}.`);
+  }
+  // Cultivo estrella: mejor MN/ha que ocupa poca superficie (aporta más margen que superficie)
+  const estrella = (rows, totSup, emp) => {
+    const cults = [...new Set(rows.map(r=>r.cultivo))];
+    let best = null;
+    cults.forEach(c => {
+      const rc = rows.filter(r=>r.cultivo===c);
+      const supC = rc.reduce((s,r)=>s+r.superficie,0);
+      const share = totSup ? supC/totSup*100 : 0;
+      if (share < 3) return;                         // ignorar plots muy chicos
+      const mnHa = wAvg(rc,'mn');                     // por superficie propia (los 2da no dan 0)
+      if (mnHa > 0 && (!best || mnHa > best.mnHa)) best = { c, share, mnHa };
+    });
+    return best;
+  };
+  [ {rows:rowsA, sup:mA.sup, emp:A}, {rows:rowsB, sup:mB.sup, emp:B} ].forEach(x => {
+    const e = estrella(x.rows, x.sup, x.emp);
+    if (e) bullets.push(`<strong>Cultivo estrella de <span style="color:${col(x.emp)}">${x.emp}</span>:</strong> ${e.c} rinde el mejor margen (${fmtUSD(e.mnHa)}/ha) ocupando solo ${fmtPct(e.share)} de la superficie.`);
+  });
+  document.getElementById('an-insights').innerHTML =
+    `<ul style="margin:0; padding-left:18px; line-height:2; font-size:13px; color:var(--text)">
+       ${bullets.map(b=>`<li>${b}</li>`).join('')}
+     </ul>`;
+
+  // ── Tabla indicadores (U$S/ha) ──
+  const rowInd = (lbl, a, b, fmtFn=fmtUSD, betterHigh=true) => {
+    const d = a - b;
+    const cls = Math.abs(d)<0.5 ? '' : (d>0)===betterHigh ? 'above' : 'below';
+    const dCls = d>=0 ? 'above' : 'below';
+    return `<tr>
+      <td>${lbl}</td>
+      <td style="text-align:right; color:${cA}; font-weight:600">${fmtFn(a)}</td>
+      <td style="text-align:right; color:${cB}; font-weight:600">${fmtFn(b)}</td>
+      <td style="text-align:right" class="${dCls}">${d>=0?'+':''}${fmtFn(d)}</td>
+    </tr>`;
+  };
+  document.getElementById('an-tabla-ind').innerHTML = `
+    <table class="cmp-table" style="min-width:420px">
+      <thead><tr>
+        <th>Indicador</th>
+        <th style="text-align:right"><span class="dot" style="background:${cA}"></span>${A}</th>
+        <th style="text-align:right"><span class="dot" style="background:${cB}"></span>${B}</th>
+        <th style="text-align:right">Δ</th>
+      </tr></thead>
+      <tbody>
+        ${rowInd('Ingresos', mA.in, mB.in)}
+        ${rowInd('Gastos Directos', mA.gd, mB.gd, fmtUSD, false)}
+        ${rowInd('Alquiler', mA.alq, mB.alq, fmtUSD, false)}
+        ${rowInd('Gastos Estructura', mA.ovh, mB.ovh, fmtUSD, false)}
+        ${rowInd('Margen Bruto', mA.mb, mB.mb)}
+        ${rowInd('Margen Neto', mA.mn, mB.mn)}
+        ${rowInd('Rentabilidad', mA.rent, mB.rent, fmtPct)}
+      </tbody>
+    </table>`;
+
+  // ── Tabla comercialización & rindes ──
+  // Gasto comercial %: (P.Prod × GtosCom − Flete) / P.Prod, ponderado por toneladas
+  const gcomPct = rows => {
+    let num=0, den=0;
+    rows.forEach(r => {
+      if (!r.pProd) return;
+      const tons = (r.superficie||0) * (r.rendimiento||0);
+      // Gasto Comercial % = 1 − ((P.Prod × Gtos.Com − Flete) / P.Prod)
+      const pct  = (1 - (r.pProd * (r.gtosCom||1) - (r.flete||0)) / r.pProd) * 100;
+      num += pct*tons; den += tons;
+    });
+    return den ? num/den : null;
+  };
+  const pVtaCult = (rows, c) => { const rc=rows.filter(r=>r.cultivo===c); const v=wAvgPVenta(rc); return v>0?v:null; };
+  const gcomCult = (rows, c) => { const rc=rows.filter(r=>r.cultivo===c); return rc.length?gcomPct(rc):null; };
+
+  // Fila expandible con detalle por cultivo
+  const expRow = (key, lbl, a, b, fmtFn) => {
+    const d = (a!=null&&b!=null)? a-b : null;
+    return `<tr style="cursor:pointer" onclick="toggleAnCom('${key}')" title="Click para ver por cultivo">
+      <td>${lbl} <span id="ancom-arrow-${key}" style="font-size:10px;color:var(--muted)">▶</span></td>
+      <td style="text-align:right; color:${cA}; font-weight:600">${a!=null?fmtFn(a):'–'}</td>
+      <td style="text-align:right; color:${cB}; font-weight:600">${b!=null?fmtFn(b):'–'}</td>
+      <td style="text-align:right" class="${d==null?'':d>=0?'above':'below'}">${d!=null?(d>=0?'+':'')+fmtFn(d):''}</td>
+    </tr>`;
+  };
+  const subRows = (key, fnA, fnB, fmtFn) => allCults.map(c => {
+    const a=fnA(c), b=fnB(c);
+    if (a==null && b==null) return '';
+    const d = (a!=null&&b!=null)? a-b : null;
+    const m = 'color:var(--muted); font-size:11px';
+    return `<tr class="ancom-${key}" style="display:none; background:var(--s3)">
+      <td style="padding-left:24px; ${m}"><span class="dot" style="background:${cultColor(c)}"></span>${c}</td>
+      <td style="text-align:right; ${m}">${a!=null?fmtFn(a):'·'}</td>
+      <td style="text-align:right; ${m}">${b!=null?fmtFn(b):'·'}</td>
+      <td style="text-align:right; font-size:11px" class="${d==null?'':d>=0?'above':'below'}">${d!=null?(d>=0?'+':'')+fmtFn(d):''}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('an-tabla-com').innerHTML = `
+    <table class="cmp-table" style="min-width:420px">
+      <thead><tr>
+        <th>Indicador</th>
+        <th style="text-align:right"><span class="dot" style="background:${cA}"></span>${A}</th>
+        <th style="text-align:right"><span class="dot" style="background:${cB}"></span>${B}</th>
+        <th style="text-align:right">Δ</th>
+      </tr></thead>
+      <tbody>
+        ${rowInd('% Vendido', mA.pctV, mB.pctV, fmtPct)}
+        ${expRow('pv', 'Precio Venta', mA.pVta, mB.pVta, fmtUSD)}
+        ${subRows('pv', c=>pVtaCult(rowsA,c), c=>pVtaCult(rowsB,c), fmtUSD)}
+        ${expRow('gc', 'Gasto Comercial', gcomPct(rowsA), gcomPct(rowsB), fmtPct)}
+        ${subRows('gc', c=>gcomCult(rowsA,c), c=>gcomCult(rowsB,c), fmtPct)}
+        ${rowInd('Superficie (ha)', mA.sup, mB.sup, v=>fmt(v,0))}
+      </tbody>
+    </table>
+    <div style="font-size:11px; color:var(--muted); margin-top:8px;">
+      💡 Clickeá <strong>Precio Venta</strong> o <strong>Gasto Comercial</strong> para ver el detalle por cultivo.
+      Gasto Comercial % = 1 − (P.Prod × Gtos.Com − Flete) / P.Prod.
+    </div>`;
+
+  // ── Comparación por cultivo (MB/ha, ordenado de mayor a menor) ──
+  // MB/ha por cultivo: ponderado por la superficie PROPIA del cultivo (no la física),
+  // para que los cultivos de 2da también muestren su margen real.
+  const cultInfo = allCults.map(c => {
+    const rA = rowsA.filter(r=>r.cultivo===c), rB = rowsB.filter(r=>r.cultivo===c);
+    const supA = rA.reduce((s,r)=>s+r.superficie,0), supB = rB.reduce((s,r)=>s+r.superficie,0);
+    return {
+      c,
+      supA, supB,
+      rdA: rA.length?wAvg(rA,'rendimiento'):null, rdB: rB.length?wAvg(rB,'rendimiento'):null,
+      mbA: rA.length?wAvg(rA,'mb'):null,           mbB: rB.length?wAvg(rB,'mb'):null,
+      shA: mA.sup?supA/mA.sup*100:0,               shB: mB.sup?supB/mB.sup*100:0,
+    };
+  });
+  // Ordenar por el mayor MB entre las dos empresas, de mayor a menor
+  cultInfo.sort((x,y) => {
+    const mx = Math.max(x.mbA ?? -1e9, x.mbB ?? -1e9);
+    const my = Math.max(y.mbA ?? -1e9, y.mbB ?? -1e9);
+    return my - mx;
+  });
+  const cell = (v,fn,dot) => v==null ? '<span style="color:var(--border)">·</span>' : `${dot||''}${fn(v)}`;
+  const cultRows = cultInfo.map(o => {
+    const mbBetter = (o.mbA!=null && o.mbB!=null) ? (o.mbA>o.mbB?cA:o.mbB>o.mbA?cB:'') : '';
+    return `<tr>
+      <td><span class="dot" style="background:${cultColor(o.c)}"></span><strong>${o.c}</strong></td>
+      <td style="text-align:right">${o.supA>0?fmtPct(o.shA):'·'}</td>
+      <td style="text-align:right">${cell(o.rdA,v=>fmt(v,1)+'t')}</td>
+      <td style="text-align:right; ${mbBetter===cA?'font-weight:700;color:'+cA:''}">${cell(o.mbA,fmtUSD)}</td>
+      <td style="text-align:right; border-left:1px solid var(--border)">${o.supB>0?fmtPct(o.shB):'·'}</td>
+      <td style="text-align:right">${cell(o.rdB,v=>fmt(v,1)+'t')}</td>
+      <td style="text-align:right; ${mbBetter===cB?'font-weight:700;color:'+cB:''}">${cell(o.mbB,fmtUSD)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('an-tabla-cult').innerHTML = `
+    <table class="cmp-table" style="min-width:640px">
+      <thead>
+        <tr>
+          <th rowspan="2" style="vertical-align:bottom">Cultivo</th>
+          <th colspan="3" style="text-align:center; color:${cA}; border-left:1px solid var(--border)">${A}</th>
+          <th colspan="3" style="text-align:center; color:${cB}; border-left:1px solid var(--border)">${B}</th>
+        </tr>
+        <tr>
+          <th style="text-align:right; font-size:10px; border-left:1px solid var(--border)">% Sup</th>
+          <th style="text-align:right; font-size:10px">Rinde</th>
+          <th style="text-align:right; font-size:10px">MB/ha</th>
+          <th style="text-align:right; font-size:10px; border-left:1px solid var(--border)">% Sup</th>
+          <th style="text-align:right; font-size:10px">Rinde</th>
+          <th style="text-align:right; font-size:10px">MB/ha</th>
+        </tr>
+      </thead>
+      <tbody>${cultRows}</tbody>
+    </table>`;
+}
+
 // ─── TAB: TABLA ───────────────────────────────────────────────────────────────
 function renderTabla() {
   const data = filteredData;
@@ -2233,6 +2617,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
     if (tab.dataset.tab==='evolucion') renderEvolucion();
     if (tab.dataset.tab==='evol-resultado') renderEvolResultado();
+    if (tab.dataset.tab==='analisis') renderAnalisis();
   });
 });
 
