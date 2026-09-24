@@ -1662,14 +1662,14 @@ function renderResultado() {
 
   const grpMB   = calcMBProm(grupoData);
   const grpMN   = calcMNProm(grupoData);
-  const grpRC   = wAvg(grupoData,'rcCalc');
+  const grpRC   = calcRCProm(grupoData);   // ÷ Has sin 2da (consistente con MB, MN y Posición Comercial)
   const grpTotalMB = grupoData.reduce((s,r)=>s+r.mb*r.superficie,0);
   const grpTotalHA = grupoData.reduce((s,r)=>s+r.hasSin2da,0);
 
   // Empresa (o grupo si no hay filtro)
   const mainMB   = calcMBProm(data);
   const mainMN   = calcMNProm(data);
-  const mainRC   = wAvg(data,'rcCalc');
+  const mainRC   = calcRCProm(data);   // ÷ Has sin 2da (consistente con MB, MN y Posición Comercial)
   const totalMB  = data.reduce((s,r)=>s+r.mb*r.superficie,0);
   const totalHA  = data.reduce((s,r)=>s+r.hasSin2da,0);
 
@@ -1770,14 +1770,15 @@ function renderResultado() {
     options:darkOpts({yFmt:v=>fmtPct(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtPct(ctx.raw)}`})
   });
 
-  const inData     = empresas.map(e => wAvg(empMap[e],'ingresos'));
-  const gdData     = empresas.map(e => wAvg(empMap[e],'gd'));
-  const alqData    = empresas.map(e => wAvg(empMap[e],'alq'));
-  const gerencData = empresas.map(e => wAvg(empMap[e],'gerenc'));
-  const estrucData = empresas.map(e => wAvg(empMap[e],'estruc'));
-  const admData    = empresas.map(e => wAvg(empMap[e],'adm'));
-  const interesData= empresas.map(e => wAvg(empMap[e],'interes'));
-  const intermData = empresas.map(e => wAvg(empMap[e],'intermedias'));
+  // Componentes por ha física (Has sin 2da) → las barras cierran con la etiqueta MB/MN
+  const inData     = empresas.map(e => wAvgFisica(empMap[e],'ingresos'));
+  const gdData     = empresas.map(e => wAvgFisica(empMap[e],'gd'));
+  const alqData    = empresas.map(e => wAvgFisica(empMap[e],'alq'));
+  const gerencData = empresas.map(e => wAvgFisica(empMap[e],'gerenc'));
+  const estrucData = empresas.map(e => wAvgFisica(empMap[e],'estruc'));
+  const admData    = empresas.map(e => wAvgFisica(empMap[e],'adm'));
+  const interesData= empresas.map(e => wAvgFisica(empMap[e],'interes'));
+  const intermData = empresas.map(e => wAvgFisica(empMap[e],'intermedias'));
 
   // Plugin: solo etiqueta del total sobre cada barra (sin mini-card)
   function stackTotalPlugin(totals) {
