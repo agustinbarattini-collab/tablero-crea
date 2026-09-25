@@ -2706,7 +2706,11 @@ function renderSemaforo() {
   const buildCells = (rowsA, rowsB, perCultivo) => {
     const a = indic(rowsA, perCultivo), b = indic(rowsB, perCultivo);
     const pv = perCultivo
-      ? (() => { const rA=wAvg(rowsA,'rendimiento'), rB=wAvg(rowsB,'rendimiento'); return rB?(rA-rB)/rB*100:null; })()
+      ? (() => {
+          if (!rowsA.length || !rowsB.length) return null;   // cultivo no está en ambos meses → sin comparación
+          const rA=wAvg(rowsA,'rendimiento'), rB=wAvg(rowsB,'rendimiento');
+          return rB ? (rA-rB)/rB*100 : null;
+        })()
       : rindeVarPonderado(rowsA, rowsB);
     const ind = indif(rowsA);   // valores de indiferencia del mes actual
     return {
