@@ -219,6 +219,7 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
   <div class="tab" data-tab="escenarios">🎯 Escenarios de Precio</div>
   <div class="tab" data-tab="evolucion">📈 Evolución</div>
   <div class="tab" data-tab="analisis">🔍 Análisis</div>
+  <div class="tab" data-tab="semaforo">🚦 Semáforo CREA</div>
   <div class="tab" data-tab="tabla">📋 Tabla Detalle</div>
 </div>
 
@@ -462,6 +463,30 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
       <div class="chart-title">Comparación por Cultivo</div>
       <div class="chart-sub">Superficie, rendimiento y Margen Bruto de cada cultivo, ordenado de mayor a menor MB — resaltado quién tiene mejor MB</div>
       <div id="an-tabla-cult" style="overflow-x:auto; margin-top:4px;"></div>
+    </div>
+  </div>
+
+  <!-- TAB: Semáforo CREA -->
+  <div class="tab-panel" id="tab-semaforo">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:8px;">
+      <div>
+        <div style="font-size:18px; font-weight:700; color:var(--text);">🚦 Tablero Semáforo CREA</div>
+        <div id="sem-subtitle" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
+      </div>
+      <div style="font-size:11px; color:var(--muted); display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+        <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#1f6feb;vertical-align:middle;margin-right:4px;"></span>Positiva &gt;5%</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#3fb950;vertical-align:middle;margin-right:4px;"></span>Sin variación (±5%)</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#e3b341;vertical-align:middle;margin-right:4px;"></span>Negativa 5–10%</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f85149;vertical-align:middle;margin-right:4px;"></span>Negativa &gt;10%</span>
+      </div>
+    </div>
+    <div class="chart-box" style="overflow-x:auto;">
+      <div id="sem-tabla"></div>
+    </div>
+    <div style="font-size:11px; color:var(--muted); margin-top:10px; line-height:1.7;">
+      <strong>Definiciones:</strong> Rentabilidad = MN ÷ (G.Directo + Alquiler + Gerencia + Estructura + Adm) ·
+      Margen Neto = MN por hectárea física · Producción = variación de rinde de cada cultivo (vs su propio julio) ponderada por superficie, para aislar el cambio real de rinde del mix de cultivos · Costo/Tn = G.Directo ÷ Rendimiento (un aumento del costo es desfavorable).
+      La variación compara el mes seleccionado contra Julio 2026 (presupuesto original).
     </div>
   </div>
 
@@ -969,6 +994,7 @@ function renderAll() {
   if (activeTab === 'evolucion') renderEvolucion();
   if (activeTab === 'evol-resultado') renderEvolResultado();
   if (activeTab === 'analisis') renderAnalisis();
+  if (activeTab === 'semaforo') renderSemaforo();
 }
 
 function destroyChart(id) {
@@ -2554,6 +2580,135 @@ function renderAnalisis() {
     </table>`;
 }
 
+// ─── TAB: SEMÁFORO CREA ───────────────────────────────────────────────────────
+// Compara el mes seleccionado vs Julio 2026 (presupuesto original) con código de colores.
+function renderSemaforo() {
+  const campana = document.getElementById('f-campana').value || '2026-2027';
+  const startYear = parseInt(campana.split('-')[0]);
+  const baselineMes = `01/07/${startYear}`;   // Julio del año de inicio de campaña
+
+  // Mes "actual": el que indique el filtro Período, o el último si es "latest"/"all"
+  const dato = document.getElementById('f-dato').value;
+  const mesesCamp = [...new Set(allData.filter(r=>r.campana===campana && r.mesStr).map(r=>r.mesStr))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+  let actualMes;
+  if (dato && dato.startsWith('mes:')) actualMes = dato.slice(4);
+  else actualMes = mesesCamp[mesesCamp.length-1];
+
+  const sub = document.getElementById('sem-subtitle');
+  const empresas = [...new Set(allData.filter(r=>r.campana===campana).map(r=>r.empresa))].sort();
+
+  if (!mesesCamp.includes(baselineMes)) {
+    sub.innerHTML = `<span style="color:var(--yellow)">No hay datos de Julio ${startYear} (baseline) para la campaña ${campana}.</span>`;
+    document.getElementById('sem-tabla').innerHTML = '';
+    return;
+  }
+  sub.innerHTML = `Comparación: <strong style="color:var(--text)">${actualMes}</strong> (actual) vs <strong style="color:var(--text)">${baselineMes}</strong> (Julio ${startYear} · presupuesto original) — campaña ${campana}`;
+
+  // Filas de una empresa en un mes dado
+  const rowsAt = (emp, mes) => allData.filter(r => r.campana===campana && r.empresa===emp && r.mesStr===mes);
+
+  // Indicadores agregados por empresa
+  const indic = rows => {
+    if (!rows.length) return null;
+    const tons = rows.reduce((s,r)=>s+(r.rendimiento||0)*(r.superficie||0), 0);
+    const gdTot= rows.reduce((s,r)=>s+(r.gd||0)*(r.superficie||0), 0);
+    return {
+      rent:   calcRentabilidad(rows),          // %
+      mn:     calcMNProm(rows),                // U$S/ha
+      rinde:  wAvg(rows,'rendimiento'),        // t/ha
+      costoTn: tons ? gdTot/tons : null,       // U$S/tn (GD ÷ rinde)
+    };
+  };
+
+  // Variación % robusta ante base negativa/cero
+  const varPct = (a, b) => (b==null || a==null || Math.abs(b) < 0.01) ? null : (a-b)/Math.abs(b)*100;
+
+  // Color del semáforo. isCosto invierte el signo (subir el costo es malo)
+  const sem = (v, isCosto) => {
+    if (v==null) return { bg:'transparent', txt:'#8b949e', label:'–' };
+    const x = isCosto ? -v : v;
+    let bg;
+    if (x > 5)        bg = '#1f6feb';   // azul (4) positiva
+    else if (x >= -5) bg = '#3fb950';   // verde (3) sin variación
+    else if (x >= -10)bg = '#e3b341';   // amarillo (2) negativa leve
+    else              bg = '#f85149';   // rojo (1) negativa fuerte
+    const txt = contrastText(bg);
+    const label = (v>=0?'+':'') + fmt(v,0) + '%';
+    return { bg, txt, label };
+  };
+
+  // Precalcular por empresa
+  // Variación de rinde ponderada por superficie, cultivo por cultivo.
+  // Aísla el cambio real de rinde del efecto "mix de cultivos" (maíz t/ha ≠ soja t/ha).
+  const rindeVarPonderado = (rowsA, rowsJ) => {
+    const cults = [...new Set([...rowsA.map(r=>r.cultivo), ...rowsJ.map(r=>r.cultivo)])];
+    let num=0, den=0;
+    cults.forEach(c => {
+      const ra = rowsA.filter(r=>r.cultivo===c), rj = rowsJ.filter(r=>r.cultivo===c);
+      if (!ra.length || !rj.length) return;
+      const rindeA = wAvg(ra,'rendimiento'), rindeJ = wAvg(rj,'rendimiento');
+      if (!rindeJ) return;
+      const chg = (rindeA - rindeJ) / rindeJ * 100;      // % cambio de rinde de ESE cultivo
+      const w   = ra.reduce((s,r)=>s+r.superficie,0);    // ponderar por superficie
+      num += chg*w; den += w;
+    });
+    return den ? num/den : null;
+  };
+
+  const data = empresas.map(e => {
+    const rowsA = rowsAt(e, actualMes), rowsJ = rowsAt(e, baselineMes);
+    return { e, a: indic(rowsA), b: indic(rowsJ), rowsA, rowsJ };
+  });
+
+  // Celda a partir de una variación ya calculada
+  const semCellFromVar = (v, isCosto, tip) => {
+    const s = sem(v, isCosto);
+    return `<td title="${tip}" style="background:${s.bg}; color:${s.txt}; text-align:center; font-weight:700; font-size:11px; padding:8px 6px; border:1px solid var(--bg);">${s.label}</td>`;
+  };
+  // Celda de semáforo desde dos valores agregados (Rentabilidad, MN, Costo)
+  const semCell = (a, b, isCosto=false) => {
+    const v = (a!=null && b!=null) ? varPct(a, b) : null;
+    const tip = (a!=null&&b!=null)
+      ? `Actual: ${fmt(a,isCosto?1:0)} · Julio: ${fmt(b,isCosto?1:0)} · Var: ${v!=null?(v>=0?'+':'')+fmt(v,1)+'%':'—'}`
+      : 'Sin datos';
+    return semCellFromVar(v, isCosto, tip);
+  };
+  // Celda de Producción: variación de rinde ponderada por cultivo
+  const rindeCell = (d) => {
+    const v = rindeVarPonderado(d.rowsA, d.rowsJ);
+    const tip = v!=null
+      ? `Variación de rinde ponderada por superficie: ${(v>=0?'+':'')+fmt(v,1)}% (promedio del cambio de rinde de cada cultivo)`
+      : 'Sin datos comparables';
+    return semCellFromVar(v, false, tip);
+  };
+  // Celda numérica simple
+  const numCell = (val, fn=v=>fmtUSD(v)) =>
+    `<td style="text-align:center; padding:7px 6px; border:1px solid var(--border); ${val==null?'color:var(--border)':''}">${val!=null?fn(val):'·'}</td>`;
+
+  const head = `<th style="text-align:left; padding:8px 10px; position:sticky; left:0; background:var(--s3); z-index:2;">Indicador</th>` +
+    empresas.map(e=>`<th style="text-align:center; padding:8px 6px; background:var(--s3);"><span class="dot" style="background:${col(e)}"></span>${e}</th>`).join('');
+
+  const rowLabel = (txt, color) => `<td style="text-align:left; padding:7px 10px; font-weight:600; color:${color||'var(--text)'}; position:sticky; left:0; background:var(--s2); z-index:1; white-space:nowrap;">${txt}</td>`;
+
+  const body = `
+    <tr>${rowLabel('Rentabilidad','#58a6ff')}${data.map(d=>semCell(d.a?.rent, d.b?.rent)).join('')}</tr>
+    <tr>${rowLabel('Margen Neto','#58a6ff')}${data.map(d=>semCell(d.a?.mn, d.b?.mn)).join('')}</tr>
+    <tr>${rowLabel('Producción (rinde)','#58a6ff')}${data.map(d=>rindeCell(d)).join('')}</tr>
+    <tr>${rowLabel('Costo Tn producida','#58a6ff')}${data.map(d=>semCell(d.a?.costoTn, d.b?.costoTn, true)).join('')}</tr>
+    <tr style="border-top:3px solid var(--bg)">${rowLabel('Margen Neto actual (U$S/ha)')}${data.map(d=>numCell(d.a?.mn)).join('')}</tr>
+    <tr>${rowLabel(`Margen Julio ${startYear} (U$S/ha)`)}${data.map(d=>numCell(d.b?.mn)).join('')}</tr>
+    <tr>${rowLabel('Renta actual')}${data.map(d=>numCell(d.a?.rent, v=>fmtPct(v))).join('')}</tr>
+    <tr>${rowLabel('Renta inicial (Julio)')}${data.map(d=>numCell(d.b?.rent, v=>fmtPct(v))).join('')}</tr>
+  `;
+
+  document.getElementById('sem-tabla').innerHTML = `
+    <table style="border-collapse:collapse; width:100%; min-width:${140+empresas.length*70}px; font-size:12px;">
+      <thead><tr>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+}
+
 // ─── TAB: TABLA ───────────────────────────────────────────────────────────────
 function renderTabla() {
   const data = filteredData;
@@ -2619,6 +2774,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.tab==='evolucion') renderEvolucion();
     if (tab.dataset.tab==='evol-resultado') renderEvolResultado();
     if (tab.dataset.tab==='analisis') renderAnalisis();
+    if (tab.dataset.tab==='semaforo') renderSemaforo();
   });
 });
 
