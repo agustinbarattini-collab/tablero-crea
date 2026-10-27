@@ -622,6 +622,14 @@ function parseDate(s) {
   return new Date(s);
 }
 
+// Normaliza "D/M/AAAA" → "DD/MM/AAAA" (día y mes con dos dígitos).
+// Evita que "1/10/2026" y "01/10/2026" se traten como meses distintos.
+function normMes(s) {
+  const p = String(s||'').trim().split('/');
+  if (p.length !== 3) return String(s||'').trim();
+  return p[0].padStart(2,'0') + '/' + p[1].padStart(2,'0') + '/' + p[2];
+}
+
 const numFmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 const decFmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 function fmt(n, dec=0) {
@@ -738,7 +746,7 @@ async function loadData() {
         empresa:    (row['Empresa'] || '').trim(),
         cultivo:    (row['Cultivo'] || '').trim(),
         campana:    campRaw.trim(),
-        mesStr:     (row['Mes carga'] || '').trim(),
+        mesStr:     normMes(row['Mes carga']),
         mes:        parseDate(row['Mes carga']),
         superficie: parseNum(row['Superficie']),
         rendimiento:parseNum(row['Rendimiento']),
