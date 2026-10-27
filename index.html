@@ -1401,8 +1401,40 @@ function renderPosicion() {
       </div>`;
   }
 
+  // ── Avance de ventas vs mes anterior ──
+  const campanaSel = document.getElementById('f-campana').value;
+  const cultivoSel = document.getElementById('f-cultivo').value;
+  const datoSel    = document.getElementById('f-dato').value;
+  const mesesCamp  = [...new Set(allData.filter(r=>r.campana===campanaSel && r.mesStr).map(r=>r.mesStr))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+  let actualMes = null;
+  if (datoSel && datoSel.startsWith('mes:')) actualMes = datoSel.slice(4);
+  else if (datoSel === 'latest')             actualMes = mesesCamp[mesesCamp.length-1];
+  let prevMes = null;
+  if (actualMes) { const i = mesesCamp.indexOf(actualMes); if (i>0) prevMes = mesesCamp[i-1]; }
+
+  const ventaAt = (mes) => {
+    if (!mes) return null;
+    const rows = allData.filter(r => r.campana===campanaSel && r.mesStr===mes &&
+      (!cultivoSel || r.cultivo===cultivoSel) &&
+      (hasEmp ? r.empresa===empresaFiltro : true));
+    return rows.length ? wAvgVenta(rows) : null;
+  };
+  const curVentaMes  = ventaAt(actualMes);
+  const prevVentaMes = ventaAt(prevMes);
+  let ventaSubExtra = '';
+  if (prevVentaMes != null && curVentaMes != null) {
+    const dPrev  = curVentaMes - prevVentaMes;
+    const mesLbl = parseDate(prevMes).toLocaleDateString('es-AR',{month:'short', year:'2-digit'});
+    ventaSubExtra = `<div class="card-sub" style="margin-top:4px">
+      <span style="color:var(--muted)">Mes ant. (${mesLbl}): </span>
+      <strong style="color:var(--text)">${fmtPct(prevVentaMes)}</strong>
+      <span style="color:${dPrev>=0?'var(--green)':'var(--red)'}; font-size:11px; margin-left:4px">${dPrev>=0?'▲':'▼'} ${fmtPct(Math.abs(dPrev))} vs mes ant.</span>
+    </div>`;
+  }
+
   document.getElementById('cards-posicion').innerHTML =
-    metricCard('% Vendido', mainVenta, fmtPct, v=>v>=60?'green':v>=35?'yellow':'red', true, grpVenta, fmtPct) +
+    metricCard('% Vendido', mainVenta, fmtPct, v=>v>=60?'green':v>=35?'yellow':'red', true, grpVenta, fmtPct, ventaSubExtra) +
     `<div class="card">
       <div class="card-label">Precio Venta${hasEmp?` — <span style="color:${col(empresaFiltro)}">${empresaFiltro}</span>`:' — Grupo'}</div>
       <div class="card-value blue" style="font-size:${hasEmp?'32px':'26px'}">${fmtUSD(mainPVenta)}</div>
