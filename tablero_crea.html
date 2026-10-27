@@ -1,0 +1,2859 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CREA — Tablero de Gestión Agrícola</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root {
+  --bg: #0d1117; --s1: #161b22; --s2: #21262d; --s3: #2d333b;
+  --border: #30363d; --green: #3fb950; --blue: #58a6ff;
+  --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
+  --text: #c9d1d9; --muted: #8b949e; --r: 8px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+
+/* Header */
+.header { background: var(--s1); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 16px; height: 56px; flex-shrink: 0; }
+.header-icon { font-size: 22px; }
+.header h1 { font-size: 16px; font-weight: 600; }
+.badge { background: var(--green); color: #000; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+.update-info { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+/* Filters */
+.filters { background: var(--s1); border-bottom: 1px solid var(--border); padding: 10px 24px; display: flex; gap: 20px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
+.filter-group { display: flex; align-items: center; gap: 8px; }
+.filter-group label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+select { background: var(--s2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: var(--r); font-size: 13px; cursor: pointer; }
+select:focus { outline: none; border-color: var(--blue); }
+
+/* Multi-select empresa */
+.multi { position: relative; }
+.multi-btn { background: var(--s2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: var(--r); font-size: 13px; cursor: pointer; min-width: 130px; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.multi-btn:hover { border-color: var(--blue); }
+.multi-btn .caret { color: var(--muted); font-size: 10px; }
+.multi-panel { display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 100; background: var(--s2); border: 1px solid var(--border); border-radius: var(--r); padding: 6px; min-width: 180px; max-height: 320px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.multi-panel.open { display: block; }
+.multi-actions { display: flex; gap: 6px; padding: 4px 6px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.multi-actions button { flex: 1; background: var(--s3); border: 1px solid var(--border); color: var(--text); font-size: 11px; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
+.multi-actions button:hover { border-color: var(--blue); color: var(--blue); }
+.multi-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.multi-opt:hover { background: var(--s3); }
+.multi-opt input { cursor: pointer; accent-color: var(--blue); }
+.multi-opt .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+/* Tabs */
+.tabs { background: var(--s1); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; gap: 4px; flex-shrink: 0; overflow-x: auto; }
+.tab { padding: 12px 16px; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; white-space: nowrap; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--text); border-bottom-color: var(--blue); }
+
+/* Content */
+.content { flex: 1; overflow-y: auto; padding: 24px; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.card { background: var(--s2); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; }
+.card-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.card-value { font-size: 26px; font-weight: 700; line-height: 1; }
+.card-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.green { color: var(--green); } .red { color: var(--red); }
+.yellow { color: var(--yellow); } .blue { color: var(--blue); }
+
+/* Chart grid */
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.chart-full { grid-column: 1 / -1; }
+.chart-box { background: var(--s2); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; }
+.chart-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; }
+.chart-sub { font-size: 11px; color: var(--muted); margin-top: -12px; margin-bottom: 16px; }
+
+/* Table */
+.table-wrap { background: var(--s2); border: 1px solid var(--border); border-radius: var(--r); overflow: auto; max-height: 600px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th { background: var(--s3); padding: 10px 14px; text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; white-space: nowrap; border-bottom: 1px solid var(--border); z-index: 1; }
+tbody tr { border-bottom: 1px solid var(--border); }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--s3); }
+tbody td { padding: 9px 14px; white-space: nowrap; }
+.pos { color: var(--green); font-weight: 600; }
+.neg { color: var(--red); font-weight: 600; }
+.warn { color: var(--yellow); }
+
+/* Scenarios */
+.scenario-grid { display: grid; grid-template-columns: 380px 1fr; gap: 16px; }
+.scenario-box { background: var(--s2); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; }
+.scenario-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; }
+.slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.slider-label { font-size: 12px; color: var(--text); min-width: 130px; }
+input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
+.slider-val { font-size: 12px; font-weight: 700; min-width: 80px; text-align: right; color: var(--blue); }
+.slider-pct { font-size: 11px; color: var(--muted); min-width: 40px; text-align: right; }
+
+/* Loading / Error */
+.loading { display: flex; align-items: center; justify-content: center; height: 240px; color: var(--muted); font-size: 14px; flex-direction: column; gap: 12px; }
+.spinner { width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Toolbar */
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.btn { background: var(--s3); border: 1px solid var(--border); color: var(--text); padding: 7px 14px; border-radius: var(--r); cursor: pointer; font-size: 12px; font-family: inherit; }
+.btn:hover { border-color: var(--blue); color: var(--blue); }
+.count-badge { font-size: 12px; color: var(--muted); }
+
+/* Empresa dot */
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+/* Progress bar */
+.pbar-wrap { display: flex; align-items: center; gap: 8px; }
+.pbar { flex: 1; height: 5px; background: var(--s3); border-radius: 3px; overflow: hidden; min-width: 70px; }
+.pbar-fill { height: 100%; border-radius: 3px; }
+
+/* Responsive */
+/* Escenarios: dos columnas en pantallas anchas, apiladas en angostas */
+.scenario-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .scenario-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px) {
+  .charts-grid { grid-template-columns: 1fr; }
+  .chart-full { grid-column: 1; }
+  .scenario-grid { grid-template-columns: 1fr; }
+}
+
+/* Comparison table in posicion */
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cmp-table th { padding: 8px 12px; text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+.cmp-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.cmp-table tr:last-child td { border-bottom: none; }
+.above { color: var(--green); font-weight: 600; }
+.below { color: var(--red); font-weight: 600; }
+.at { color: var(--yellow); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     PANTALLA DE CONTRASEÑA
+     Para cambiar la contraseña, editá el valor de CLAVE_ACCESO unas líneas
+     más abajo (buscá "CLAVE_ACCESO").
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div id="login-overlay" style="position:fixed; inset:0; z-index:9999; background:var(--bg);
+     display:flex; align-items:center; justify-content:center; flex-direction:column; gap:20px;">
+  <div style="text-align:center;">
+    <div style="font-size:48px; margin-bottom:8px;">🌾</div>
+    <div style="font-size:20px; font-weight:700; color:var(--text);">Tablero de Gestión CREA</div>
+    <div style="font-size:13px; color:var(--muted); margin-top:6px;">Ingresá la contraseña para acceder</div>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <input type="password" id="login-input" placeholder="Contraseña"
+           style="background:var(--s2); border:1px solid var(--border); color:var(--text);
+                  padding:10px 14px; border-radius:var(--r); font-size:14px; width:220px;"
+           onkeydown="if(event.key==='Enter') checkPassword()">
+    <button class="btn" onclick="checkPassword()" style="padding:10px 18px;">Entrar →</button>
+  </div>
+  <div id="login-error" style="color:var(--red); font-size:12px; height:16px;"></div>
+</div>
+
+<div class="app" id="app-content" style="display:none;">
+
+<!-- Header -->
+<div class="header">
+  <div class="header-icon">🌾</div>
+  <h1>Tablero de Gestión CREA</h1>
+  <span class="badge" id="badge-campana">–</span>
+  <span class="update-info" id="update-info">Cargando…</span>
+  <button class="btn" id="btn-refresh" onclick="location.reload()" style="margin-left:12px; padding:5px 12px;" title="Recargar datos desde Google Sheets">↻ Actualizar</button>
+</div>
+
+<!-- Filters -->
+<div class="filters">
+  <div class="filter-group"><label>Campaña</label>
+    <select id="f-campana"><option value="">Todas</option></select>
+  </div>
+  <div class="filter-group"><label>Cultivo</label>
+    <select id="f-cultivo"><option value="">Todos</option></select>
+  </div>
+  <div class="filter-group"><label>Empresa</label>
+    <div class="multi" id="f-empresa-multi">
+      <button class="multi-btn" id="f-empresa-btn" onclick="toggleEmpresaPanel(event)">
+        <span id="f-empresa-label">Todas</span><span class="caret">▼</span>
+      </button>
+      <div class="multi-panel" id="f-empresa-panel">
+        <div class="multi-actions">
+          <button onclick="empresaSelectAll(true)">Todas</button>
+          <button onclick="empresaSelectAll(false)">Ninguna</button>
+        </div>
+        <div id="f-empresa-opts"></div>
+      </div>
+    </div>
+  </div>
+  <div class="filter-group"><label>Período</label>
+    <select id="f-dato">
+      <option value="latest">Último mes</option>
+      <option value="all">Todos los meses</option>
+    </select>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="base">📐 Base</div>
+  <div class="tab" data-tab="posicion">📊 Posición Comercial</div>
+  <div class="tab" data-tab="resultado">💰 Resultado &amp; MB</div>
+  <div class="tab" data-tab="evol-resultado">📉 Evolución Resultado</div>
+  <div class="tab" data-tab="escenarios">🎯 Escenarios de Precio</div>
+  <div class="tab" data-tab="evolucion">📈 Evolución</div>
+  <div class="tab" data-tab="analisis">🔍 Análisis</div>
+  <div class="tab" data-tab="semaforo">🚦 Semáforo CREA</div>
+  <div class="tab" data-tab="tabla">📋 Tabla Detalle</div>
+</div>
+
+<!-- Main content -->
+<div class="content">
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    <div>Cargando datos desde Google Sheets…</div>
+  </div>
+
+  <!-- TAB: Base (Superficie & Rindes) -->
+  <div class="tab-panel active" id="tab-base">
+
+    <!-- Sección Superficie -->
+    <div style="font-size:18px; font-weight:700; color:var(--text); margin-bottom:4px;">🌱 Superficie Sembrada</div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:16px;">Distribución de hectáreas por cultivo y empresa</div>
+
+    <div class="cards" id="cards-base-sup"></div>
+
+    <div class="charts-grid">
+      <div class="chart-box chart-full">
+        <div class="chart-title">Superficie por Cultivo — Composición por Empresa</div>
+        <div class="chart-sub">Cada barra es un cultivo, los colores son las empresas (pasá el mouse para ver el detalle)</div>
+        <canvas id="chart-sup-cultivo" height="80"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Composición de Cultivos por Empresa (%)</div>
+        <div class="chart-sub">Cada barra llega al 100%. La última barra (GRUPO) es el total del grupo</div>
+        <canvas id="chart-sup-empresa" height="80"></canvas>
+      </div>
+    </div>
+
+    <!-- Sección Rendimientos -->
+    <div style="font-size:18px; font-weight:700; color:var(--text); margin:28px 0 4px;">🌾 Rendimientos Estimados</div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:16px;">Última estimación de rinde y su evolución durante la campaña</div>
+
+    <div class="chart-box" style="margin-bottom:16px;">
+      <div class="chart-title">Última Estimación de Rinde por Cultivo y Campaña (t/ha)</div>
+      <div id="tabla-rindes" style="overflow-x:auto; margin-top:4px;"></div>
+    </div>
+
+    <div class="chart-box chart-full">
+      <div class="chart-title">Evolución del Rinde Estimado en la Campaña</div>
+      <div class="chart-sub">Promedio ponderado del grupo, mes a mes — campaña seleccionada en el filtro</div>
+      <canvas id="chart-evol-rinde" height="80"></canvas>
+      <div style="font-size:11px; color:var(--muted); margin-top:10px;">
+        🚦 El valor al final de cada línea es la última estimación, con color según tendencia vs el primer mes:
+        <span style="color:var(--green)">▲ mejora</span> ·
+        <span style="color:var(--yellow)">▬ estable</span> ·
+        <span style="color:var(--red)">▼ baja</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TAB: Posición Comercial -->
+  <div class="tab-panel" id="tab-posicion">
+    <div class="cards" id="cards-posicion"></div>
+    <div class="charts-grid">
+      <div class="chart-box chart-full">
+        <div class="chart-title">% Vendido por Empresa</div>
+        <div class="chart-sub">La línea punteada es el promedio del grupo</div>
+        <canvas id="chart-venta" height="80"></canvas>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">Precio Venta vs Precio Disponible</div>
+        <canvas id="chart-precio" height="120"></canvas>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">% Cobertura por Empresa</div>
+        <canvas id="chart-cobertura" height="120"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Posición Comercial — Comparativo Grupo</div>
+        <div class="chart-sub">Cada punto = una empresa/cultivo. Mejor posición: arriba a la derecha</div>
+        <canvas id="chart-scatter" height="70"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+          <div>
+            <div class="chart-title" style="margin-bottom:2px;">Evolución de Precios por Cultivo</div>
+            <div class="chart-sub" style="margin:0;">Disponible (precio del mes) vs Ref. Acumulado (promedio que construye) vs tu Precio de Venta</div>
+          </div>
+          <div class="filter-group">
+            <label>Cultivo</label>
+            <select id="f-precio-cultivo" onchange="renderPrecios()"></select>
+          </div>
+        </div>
+        <canvas id="chart-precios-evol" height="80"></canvas>
+      </div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">Tabla Comparativa — Posición Comercial</div>
+      <div id="tabla-posicion" style="overflow-x:auto; margin-top:4px;"></div>
+    </div>
+  </div>
+
+  <!-- TAB: Resultado & MB -->
+  <div class="tab-panel" id="tab-resultado">
+    <div class="cards" id="cards-resultado"></div>
+    <div class="charts-grid">
+      <div class="chart-box">
+        <div class="chart-title">Margen Bruto por Empresa (U$S/ha)</div>
+        <canvas id="chart-mb" height="140"></canvas>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">Margen Neto por Empresa (U$S/ha)</div>
+        <canvas id="chart-mn" height="140"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Rentabilidad por Empresa (%)</div>
+        <div class="chart-sub">MN / (G. Directo + Alquiler + Gerenc + Estruc + Adm) — retorno sobre costos</div>
+        <canvas id="chart-rentabilidad" height="80"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Resultado Comercial por Empresa (U$S/ha)</div>
+        <div class="chart-sub">Positivo = vendió por encima del disponible</div>
+        <canvas id="chart-rc" height="80"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Desglose MB — Ingresos vs Gastos Directos</div>
+        <div class="chart-sub">Diferencia = Margen Bruto</div>
+        <canvas id="chart-desglose-mb" height="110"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Desglose MN — Ingresos vs Todos los Costos</div>
+        <div class="chart-sub">Diferencia = Margen Neto</div>
+        <canvas id="chart-desglose-mn" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Evolución Resultado -->
+  <div class="tab-panel" id="tab-evol-resultado">
+    <div style="font-size:12px; color:var(--muted); margin-bottom:16px;">
+      Evolución mes a mes durante la campaña seleccionada. Si filtrás una sola empresa se ve esa; si hay varias, una línea por empresa más el promedio del grupo.
+    </div>
+    <div class="charts-grid">
+      <div class="chart-box chart-full">
+        <div class="chart-title">Evolución de la Rentabilidad (%)</div>
+        <div class="chart-sub">MN / (G. Directo + Alquiler + Gerenc + Estruc + Adm)</div>
+        <canvas id="chart-evol-rent" height="80"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Evolución del Margen Bruto (U$S/ha)</div>
+        <canvas id="chart-evol-mb" height="80"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Evolución del Margen Neto (U$S/ha)</div>
+        <canvas id="chart-evol-mn" height="80"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Escenarios -->
+  <div class="tab-panel" id="tab-escenarios">
+
+    <!-- Header escenarios -->
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+      <div>
+        <div style="font-size:20px; font-weight:700; color:var(--text)">🎯 Escenarios de Precio y Rendimiento</div>
+        <div style="font-size:12px; color:var(--muted); margin-top:4px;">
+          Ajustá precio y/o rendimiento por cultivo y mirá el impacto en el MB de cada empresa
+        </div>
+      </div>
+      <button onclick="resetScenarios()" class="btn" style="font-size:12px;">↺ Resetear todo</button>
+    </div>
+
+    <div class="scenario-layout">
+
+      <!-- Panel de sliders -->
+      <div class="scenario-box">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 16px; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border)">
+          <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; padding-left:8px">Cultivo</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
+            <div style="font-size:11px; color:var(--blue); text-transform:uppercase; letter-spacing:.5px; text-align:center">💰 Precio</div>
+            <div style="font-size:11px; color:var(--yellow); text-transform:uppercase; letter-spacing:.5px; text-align:center">🌾 Rendimiento</div>
+          </div>
+        </div>
+        <div id="sliders-content"></div>
+      </div>
+
+      <!-- Panel de resultados -->
+      <div class="scenario-box">
+        <div style="font-size:13px; font-weight:600; margin-bottom:16px;">Impacto en MB por Empresa</div>
+        <div id="scenario-table-wrap" style="overflow-x:auto;"></div>
+        <canvas id="chart-scenario" style="margin-top:16px;" height="200"></canvas>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- TAB: Evolución -->
+  <div class="tab-panel" id="tab-evolucion">
+    <div class="charts-grid">
+      <div class="chart-box chart-full">
+        <div class="chart-title">Evolución de % Vendido en la Campaña</div>
+        <canvas id="chart-evol-venta" height="80"></canvas>
+      </div>
+      <div class="chart-box chart-full">
+        <div class="chart-title">Evolución del Precio de Venta Promedio</div>
+        <canvas id="chart-evol-precio" height="80"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Análisis Comparativo -->
+  <div class="tab-panel" id="tab-analisis">
+    <div style="display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:18px;">
+      <div class="filter-group"><label>Empresa A</label>
+        <select id="an-empA" onchange="renderAnalisis()"></select>
+      </div>
+      <button class="btn" onclick="swapAnalisis()" title="Intercambiar" style="padding:6px 12px;">⇄</button>
+      <div class="filter-group"><label>Empresa B</label>
+        <select id="an-empB" onchange="renderAnalisis()"></select>
+      </div>
+      <div style="font-size:12px; color:var(--muted); margin-left:auto; max-width:340px;">
+        Comparación del último mes de la campaña seleccionada. El objetivo es entender de un vistazo por qué una empresa tiene mejor resultado.
+      </div>
+    </div>
+
+    <div class="cards" id="an-cards"></div>
+
+    <div class="chart-box" style="margin-bottom:16px;">
+      <div class="chart-title">💡 Principales diferencias</div>
+      <div id="an-insights" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="chart-box">
+        <div class="chart-title">Indicadores Clave (U$S/ha ponderado)</div>
+        <div id="an-tabla-ind" style="overflow-x:auto; margin-top:4px;"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">Comercialización & Rindes</div>
+        <div id="an-tabla-com" style="overflow-x:auto; margin-top:4px;"></div>
+      </div>
+    </div>
+
+    <div class="chart-box">
+      <div class="chart-title">Comparación por Cultivo</div>
+      <div class="chart-sub">Superficie, rendimiento y Margen Bruto de cada cultivo, ordenado de mayor a menor MB — resaltado quién tiene mejor MB</div>
+      <div id="an-tabla-cult" style="overflow-x:auto; margin-top:4px;"></div>
+    </div>
+  </div>
+
+  <!-- TAB: Semáforo CREA -->
+  <div class="tab-panel" id="tab-semaforo">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:8px;">
+      <div>
+        <div style="font-size:18px; font-weight:700; color:var(--text);">🚦 Tablero Semáforo CREA</div>
+        <div id="sem-subtitle" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
+      </div>
+      <div style="font-size:11px; color:var(--muted); display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+        <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#1f6feb;vertical-align:middle;margin-right:4px;"></span>Positiva &gt;5%</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#3fb950;vertical-align:middle;margin-right:4px;"></span>Sin variación (±5%)</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#e3b341;vertical-align:middle;margin-right:4px;"></span>Negativa 5–10%</span>
+        <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f85149;vertical-align:middle;margin-right:4px;"></span>Negativa &gt;10%</span>
+      </div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+      <div class="filter-group"><label>Comparar mes</label>
+        <select id="sem-actual" onchange="renderSemaforo()"></select>
+      </div>
+      <div class="filter-group"><label>vs base</label>
+        <select id="sem-base" onchange="renderSemaforo()"></select>
+      </div>
+      <span style="font-size:11px; color:var(--muted);">💡 Click en una empresa para ver el detalle por cultivo</span>
+    </div>
+    <div class="chart-box" style="overflow-x:auto;">
+      <div id="sem-tabla"></div>
+    </div>
+    <div style="font-size:11px; color:var(--muted); margin-top:10px; line-height:1.7;">
+      <strong>Definiciones:</strong> Rentabilidad = MN ÷ (G.Directo + Alquiler + Gerencia + Estructura + Adm) ·
+      Margen Neto = MN por hectárea física · Producción = variación de rinde de cada cultivo (vs su propia base) ponderada por superficie, para aislar el cambio real de rinde del mix de cultivos ·
+      Costo Directo/Tn = G.Directo ÷ Rendimiento · Costo Total/Tn = (G.Directo + Alquiler + Gerencia + Estructura + Adm) ÷ Rendimiento (un aumento del costo es desfavorable).
+      Por defecto compara contra Julio 2026 (presupuesto original), pero podés elegir cualquier par de meses.
+      <br><strong>Indiferencia (valores del mes actual, no comparativos):</strong> Precio Indif. = Costo Total ÷ Rinde (precio que necesitás para no perder) ·
+      Rinde Indif. = Costo Total ÷ Precio Producción (rinde que necesitás para no perder).
+    </div>
+  </div>
+
+  <!-- TAB: Tabla Detalle -->
+  <div class="tab-panel" id="tab-tabla">
+    <div class="toolbar">
+      <button class="btn" onclick="exportCSV()">↓ Exportar CSV</button>
+      <span class="count-badge" id="tabla-count"></span>
+    </div>
+    <div class="table-wrap" id="tabla-main"></div>
+  </div>
+</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  CONTRASEÑA DE ACCESO
+//  👉 Para cambiarla, modificá el texto entre comillas de abajo.
+//     Ejemplo: const CLAVE_ACCESO = 'miNuevaClave2026';
+// ═══════════════════════════════════════════════════════════════════════════
+const CLAVE_ACCESO = 'crea2026';
+
+function checkPassword() {
+  const val = document.getElementById('login-input').value;
+  if (val === CLAVE_ACCESO) {
+    sessionStorage.setItem('crea_auth', 'ok');
+    showApp();
+  } else {
+    document.getElementById('login-error').textContent = 'Contraseña incorrecta';
+    document.getElementById('login-input').value = '';
+  }
+}
+
+function showApp() {
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('app-content').style.display = '';
+  if (!window._dataLoaded) { window._dataLoaded = true; loadData(); }
+}
+
+// Si ya se autenticó en esta sesión, saltear el login
+if (sessionStorage.getItem('crea_auth') === 'ok') {
+  window.addEventListener('DOMContentLoaded', showApp);
+} else {
+  window.addEventListener('DOMContentLoaded', () => document.getElementById('login-input').focus());
+}
+
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
+const SHEET_ID = '1oJzghqfBEsoedhIulgVAbG3D3DFr8lR8OLbJGO-Uttg';
+const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`;
+
+const EMPRESA_COLORS = [
+  '#3fb950','#58a6ff','#d29922','#f85149','#bc8cff',
+  '#79c0ff','#ff7b72','#ffa657','#56d364','#e3b341',
+  '#db6d28','#39d353','#a5d6ff'
+];
+
+// Colores fijos por cultivo (claves normalizadas: minúscula, sin tildes)
+const CULTIVO_COLORS = {
+  'trigo':              '#f0d048', // amarillo
+  'cebada':             '#e8893a', // naranja
+  'soja 1era':          '#1a7a3a', // verde oscuro
+  'soja 1era no gmo':   '#2ea043', // verde medio
+  'soja 2da':           '#7ee787', // verde claro
+  'maiz temprano':      '#e5141a', // rojo fuerte
+  'maiz tardio':        '#a84458', // bordó claro
+  'maiz pisingallo':    '#6e1f2e', // bordó oscuro
+  'maiz 2da':           '#ff8a82', // rojo claro
+  'girasol confitero':  '#a5d6ff', // celeste claro
+  'girasol conv.':      '#58a6ff', // celeste medio
+  'girasol ao':         '#1f6feb', // celeste/azul
+  // resto a gusto
+  'arveja':             '#56d364', // verde lima
+  'colza':              '#bc8cff', // violeta
+  'mani':               '#d2a679', // marrón/beige
+  'sorgo':              '#d29922', // mostaza
+};
+
+// Normaliza el nombre de cultivo y devuelve su color (o uno de la paleta si no está mapeado)
+function cultColor(cultivo, fallbackIndex = 0) {
+  const key = String(cultivo||'').toLowerCase().trim()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'');
+  return CULTIVO_COLORS[key] || EMPRESA_COLORS[fallbackIndex % EMPRESA_COLORS.length];
+}
+
+// Devuelve '#000' o '#fff' según cuál contrasta mejor con el color de fondo dado
+function contrastText(hex) {
+  const h = String(hex||'').replace('#','');
+  if (h.length < 6) return '#fff';
+  const r=parseInt(h.substr(0,2),16), g=parseInt(h.substr(2,2),16), b=parseInt(h.substr(4,2),16);
+  return (0.299*r + 0.587*g + 0.114*b) > 150 ? '#000' : '#fff';
+}
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let allData = [];
+let filteredData = [];
+const charts = {};
+const empresaColors = {};
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+// Formato argentino: punto = separador de miles (se elimina), coma = decimal (→ punto)
+// Ej: "3.460" → 3460 | "5,022" → 5.022 | "1.475.072" → 1475072 | "1590,96" → 1590.96
+function parseNum(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  let s = String(v).replace('%','').trim();
+  s = s.replace(/\./g, '').replace(',', '.');
+  return parseFloat(s) || 0;
+}
+
+function parsePct(v) {
+  const s = String(v || '').replace(',','.').trim();
+  const hasSign = s.includes('%');
+  const n = parseFloat(s.replace('%','')) || 0;
+  // Already in 0-100 range if it has % sign or value > 1
+  return hasSign || n > 1 ? n : n * 100;
+}
+
+function parseDate(s) {
+  if (!s) return null;
+  const p = String(s).trim().split('/');
+  if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+  return new Date(s);
+}
+
+// Normaliza "D/M/AAAA" → "DD/MM/AAAA" (día y mes con dos dígitos).
+// Evita que "1/10/2026" y "01/10/2026" se traten como meses distintos.
+function normMes(s) {
+  const p = String(s||'').trim().split('/');
+  if (p.length !== 3) return String(s||'').trim();
+  return p[0].padStart(2,'0') + '/' + p[1].padStart(2,'0') + '/' + p[2];
+}
+
+const numFmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+const decFmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+function fmt(n, dec=0) {
+  if (n === null || n === undefined || isNaN(n)) return '–';
+  return dec > 0 ? decFmt.format(n) : numFmt.format(n);
+}
+function fmtPct(n) { return fmt(n,1) + '%'; }
+function fmtUSD(n) { return 'U$S ' + fmt(n,0); }
+
+function wAvg(rows, valKey, weightKey='superficie') {
+  let sv = 0, sw = 0;
+  rows.forEach(r => { const w = r[weightKey]||0; sv += (r[valKey]||0)*w; sw += w; });
+  return sw ? sv/sw : 0;
+}
+
+// % vendido ponderado por valor de producción: Σ(Rdto×Sup×PrecioProd×%Vta) / Σ(Rdto×Sup×PrecioProd)
+function wAvgVenta(rows) {
+  let sv = 0, sw = 0;
+  rows.forEach(r => {
+    const w = (r.rendimiento||0) * (r.superficie||0) * (r.pProd||0);
+    sv += (r.pctVenta||0) * w;
+    sw += w;
+  });
+  return sw ? sv/sw : 0;
+}
+
+// Denominador correcto: Σ Has sin 2da (con cap a superficie para evitar datos corruptos)
+function sumHasSin2da(rows) {
+  return rows.reduce((s,r) => s + Math.min(r.hasSin2da||0, r.superficie||0), 0);
+}
+
+// Promedio de un campo por hectárea FÍSICA: Σ(campo × Sup) / Σ(Has sin 2da)
+// (mismo criterio que MB/MN Prom — descuenta las segundas para no contar doble la superficie)
+function wAvgFisica(rows, key) {
+  const num = rows.reduce((s,r) => s + (r[key]||0) * (r.superficie||0), 0);
+  const den = sumHasSin2da(rows);
+  return den ? num / den : 0;
+}
+
+// MB Prom: Σ(MB × Sup) / Σ(Has sin 2da)
+function calcMBProm(rows) {
+  const num = rows.reduce((s,r) => s + (r.mb||0) * (r.superficie||0), 0);
+  const den = sumHasSin2da(rows);
+  return den ? num / den : 0;
+}
+
+// MN Prom: Σ(MN × Sup) / Σ(Has sin 2da)  — mismo denominador que MB
+function calcMNProm(rows) {
+  const num = rows.reduce((s,r) => s + (r.mn||0) * (r.superficie||0), 0);
+  const den = sumHasSin2da(rows);
+  return den ? num / den : 0;
+}
+
+// RC Prom: Σ(RC × Sup) / Σ(Has sin 2da)  — mismo denominador que MB y MN
+function calcRCProm(rows) {
+  const num = rows.reduce((s,r) => s + (r.rcCalc||0) * (r.superficie||0), 0);
+  const den = sumHasSin2da(rows);
+  return den ? num / den : 0;
+}
+
+// Rentabilidad %: Σ(MN × Sup) / Σ((GD + ALQ + Gerenc + Estruc + Adm) × Sup) × 100
+// = retorno del margen neto sobre el total de costos
+function calcRentabilidad(rows) {
+  const numMN  = rows.reduce((s,r) => s + (r.mn||0) * (r.superficie||0), 0);
+  const denCost = rows.reduce((s,r) =>
+    s + ((r.gd||0) + (r.alq||0) + (r.gerenc||0) + (r.estruc||0) + (r.adm||0)) * (r.superficie||0), 0);
+  return denCost ? numMN / denCost * 100 : 0;
+}
+
+// Filtra filas al mes más reciente de la empresa+campaña
+// Si un cultivo tiene fecha anterior al máximo, está desactualizado y se excluye
+function filterLatestMes(rows) {
+  if (!rows.length) return rows;
+  // Mes máximo del conjunto
+  const maxMes = rows.reduce((max, r) => (r.mes && r.mes > max ? r.mes : max), new Date(0));
+  // Solo incluir filas cuyo mes == maxMes (dentro del mismo mes calendario)
+  return rows.filter(r => r.mes &&
+    r.mes.getFullYear() === maxMes.getFullYear() &&
+    r.mes.getMonth() === maxMes.getMonth()
+  );
+}
+
+// Precio venta promedio ponderado por volumen vendido: Σ(pVenta × Rdto × Sup × %Vta) / Σ(Rdto × Sup × %Vta)
+// Solo considera cultivos con ventas reales (weight > 0)
+function wAvgPVenta(rows) {
+  let sv = 0, sw = 0;
+  rows.forEach(r => {
+    const w = (r.rendimiento||0) * (r.superficie||0) * ((r.pctVenta||0)/100);
+    if (w > 0) { sv += (r.pVenta||0) * w; sw += w; }
+  });
+  return sw ? sv/sw : 0;
+}
+
+function groupBy(arr, key) {
+  const m = {};
+  arr.forEach(r => { const k=r[key]; if(!m[k]) m[k]=[]; m[k].push(r); });
+  return m;
+}
+
+// ─── DATA LOADING ─────────────────────────────────────────────────────────────
+async function loadData() {
+  try {
+    const resp = await fetch(SHEET_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+
+    const parsed = Papa.parse(text, { header: true, skipEmptyLines: true,
+      transformHeader: h => h.trim() });
+
+    allData = parsed.data.map(row => {
+      const get = k => row[k] !== undefined ? row[k] : (row[k.normalize('NFD').replace(/[̀-ͯ]/g,'')] || '');
+      const campRaw = row['Campaña'] || row['Campaña'] || row['Campana'] || '';
+      return {
+        empresa:    (row['Empresa'] || '').trim(),
+        cultivo:    (row['Cultivo'] || '').trim(),
+        campana:    campRaw.trim(),
+        mesStr:     normMes(row['Mes carga']),
+        mes:        parseDate(row['Mes carga']),
+        superficie: parseNum(row['Superficie']),
+        rendimiento:parseNum(row['Rendimiento']),
+        pObjetivo:  parseNum(row['Precio Objetivo']),
+        pVenta:     parseNum(row['Precio Venta']),
+        pctVenta:   parsePct(row['% Venta']),
+        pctCobertura: parsePct(row['% Cobertura']),
+        pctComprometido: parsePct(row['% Comprometido']),
+        pDisp:      parseNum(row['Precio Disp']),
+        pProd:      parseNum(row['Precio Prod']),
+        ingresos:   parseNum(row['IN']),
+        gd:         parseNum(row['GD']),
+        alq:        parseNum(row['ALQ']),
+        mb:         parseNum(row['MB']),
+        gerenc:     parseNum(row['Gerenc']),
+        estruc:     parseNum(row['Estruc']),
+        adm:        parseNum(row['Adm']),
+        mn:         parseNum(row['MN']),
+        totalMB:    parseNum(row['TOTAL MB']),
+        totalMN:    parseNum(row['TOTAL MN']),
+        mbProm:     parseNum(row['MB Prom']),
+        interes:      parseNum(row['Interes'] || row['Interés'] || 0),
+        intermedias:  parseNum(row['Intermedias'] || 0),
+        fleteSheet:   parseNum(row['Flete'] || 0),              // U$S/tn desde la planilla
+        gtosComSheet: parsePct(row['Gtos com'] || row['Gtos Com'] || 0) / 100, // factor (95% → 0.95)
+        resultadoComercial: parseNum(row['Resultado Comercial']),
+        hasSin2da:  parseNum(row['Has sin 2da']),
+        dato:       (row['Dato'] || '').trim(),
+      };
+    }).filter(r => r.empresa && r.cultivo && r.campana
+               && r.cultivo !== 'Dado en Alquiler');  // tierra arrendada a terceros: sin producción propia
+
+    // ── Tablas de referencia: Flete y Gastos Comerciales ────────────────────
+    const FLETE_CAMPANA = {
+      '2020-2021': 20, '2021-2022': 25, '2022-2023': 32,
+      '2023-2024': 30, '2024-2025': 35, '2025-2026': 35, '2026-2027': 35,
+    };
+    // Si una campaña no está en la tabla, usar el flete de la campaña más reciente cargada
+    const FLETE_FALLBACK = FLETE_CAMPANA[Object.keys(FLETE_CAMPANA).sort().pop()];
+    // Gastos comerciales por cultivo (factor multiplicador sobre el diferencial de precio)
+    const GTOS_COM = {
+      'Trigo':           0.95,
+      'Arveja':          0.95,
+      'Colza':           0.95,
+      'Cebada':          0.96,
+      'Soja 1era':       0.95,
+      'Soja 2da':        0.95,
+      'Mani':            1.00,
+      'Maiz Temprano':   0.94,
+      'Maiz Tardio':     0.94,
+      'Maiz 2da':        0.94,
+      'Maiz Pisingallo': 0.95,
+      'Girasol Confitero': 0.95,
+      'Girasol conv.':   1.15,
+      'Girasol AO':      1.15,
+      'Sorgo':           0.94,
+      'Soja 1era NO GMO': 0.95,
+    };
+
+    // ── Resultado Comercial recalculado ─────────────────────────────────────
+    // RC = (((P.Prod − P.Ref.Acum) × GtosCom%) − Flete) × Rendimiento
+    // P.Ref.Acum = promedio simple acumulado de pDisp desde el inicio de la campaña
+    const rcGroups = {};
+    allData.forEach(r => {
+      const k = `${r.empresa}|${r.cultivo}|${r.campana}`;
+      if (!rcGroups[k]) rcGroups[k] = [];
+      rcGroups[k].push(r);
+    });
+    Object.values(rcGroups).forEach(rows => {
+      rows.sort((a,b) => (a.mes?.getTime()||0) - (b.mes?.getTime()||0));
+      let sumPDisp = 0;
+      rows.forEach((r, i) => {
+        sumPDisp += r.pDisp;
+        const avgPDispAcum = sumPDisp / (i + 1);
+        r.avgPDispAcum = avgPDispAcum;
+        // Flete y Gtos com se toman de la planilla; si esa fila no los tiene cargados
+        // (datos viejos, antes de agregar la columna), se usa el valor de referencia.
+        const flete   = r.fleteSheet   > 0 ? r.fleteSheet   : (FLETE_CAMPANA[r.campana] ?? FLETE_FALLBACK);
+        const gtosCom = r.gtosComSheet > 0 ? r.gtosComSheet : (GTOS_COM[r.cultivo]      ?? 1);
+        r.flete   = flete;
+        r.gtosCom = gtosCom;
+        // RC = (((P.Prod × GtosCom%) - Flete) - ((P.Ref.Acum × GtosCom%) - Flete)) × Rendimiento
+        // Simplificado: (P.Prod - P.Ref.Acum) × GtosCom% × Rendimiento
+        r.rcCalc = (r.pProd - avgPDispAcum) * gtosCom * r.rendimiento;
+      });
+    });
+
+    // Assign colors
+    const empresas = [...new Set(allData.map(r=>r.empresa))].sort();
+    empresas.forEach((e,i) => empresaColors[e] = EMPRESA_COLORS[i % EMPRESA_COLORS.length]);
+
+    initFilters();
+    applyFilters();
+
+    document.getElementById('loading').style.display = 'none';
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.display='');
+
+    const dates = allData.map(r=>r.mes).filter(Boolean);
+    const lastDate = new Date(Math.max(...dates));
+    document.getElementById('update-info').textContent =
+      `Último dato: ${lastDate.toLocaleDateString('es-AR',{month:'short',year:'numeric'})} · ${allData.length} registros`;
+
+  } catch(e) {
+    document.getElementById('loading').innerHTML =
+      `<div style="color:var(--red);text-align:center">
+        <div style="font-size:20px;margin-bottom:8px">⚠️</div>
+        Error al cargar datos: ${e.message}<br>
+        <span style="font-size:12px;color:var(--muted)">Verificá que el Sheet sea público (Cualquier persona con el enlace)</span>
+       </div>`;
+  }
+}
+
+// ─── FILTERS ──────────────────────────────────────────────────────────────────
+let TODAS_EMPRESAS = [];  // lista completa de empresas
+
+// Devuelve array de empresas seleccionadas (vacío = todas)
+function getSelectedEmpresas() {
+  const checks = document.querySelectorAll('#f-empresa-opts input[type=checkbox]:checked');
+  const sel = [...checks].map(c => c.value);
+  // Si están todas tildadas o ninguna, equivale a "todas"
+  return (sel.length === 0 || sel.length === TODAS_EMPRESAS.length) ? [] : sel;
+}
+
+// Devuelve UNA empresa si hay exactamente una seleccionada, sino '' (para modo "empresa vs grupo")
+function getEmpresaFiltro() {
+  const sel = getSelectedEmpresas();
+  return sel.length === 1 ? sel[0] : '';
+}
+
+function toggleEmpresaPanel(e) {
+  e.stopPropagation();
+  document.getElementById('f-empresa-panel').classList.toggle('open');
+}
+
+function empresaSelectAll(all) {
+  document.querySelectorAll('#f-empresa-opts input[type=checkbox]').forEach(c => c.checked = all);
+  onEmpresaChange();
+}
+
+function updateEmpresaLabel() {
+  const sel = [...document.querySelectorAll('#f-empresa-opts input:checked')].map(c=>c.value);
+  const lbl = document.getElementById('f-empresa-label');
+  if (sel.length === 0 || sel.length === TODAS_EMPRESAS.length) lbl.textContent = 'Todas';
+  else if (sel.length === 1) lbl.textContent = sel[0];
+  else lbl.textContent = `${sel.length} empresas`;
+}
+
+function onEmpresaChange() {
+  updateEmpresaLabel();
+  applyFilters();
+}
+
+// Cerrar el panel al hacer click afuera
+document.addEventListener('click', (e) => {
+  const multi = document.getElementById('f-empresa-multi');
+  if (multi && !multi.contains(e.target))
+    document.getElementById('f-empresa-panel')?.classList.remove('open');
+});
+
+// Pobla el dropdown de Período con los meses de la campaña seleccionada
+function populatePeriodo() {
+  const campana = document.getElementById('f-campana').value;
+  const fD = document.getElementById('f-dato');
+  const prev = fD.value;
+  fD.innerHTML = '<option value="latest">Último mes</option><option value="all">Todos los meses</option>';
+  if (campana) {
+    const meses = [...new Set(allData.filter(r=>r.campana===campana && r.mesStr).map(r=>r.mesStr))]
+      .sort((a,b)=>{ const da=parseDate(a), db=parseDate(b); return da&&db?da-db:0; });
+    if (meses.length) {
+      const og = document.createElement('optgroup');
+      og.label = 'Mes específico';
+      meses.forEach(m => {
+        const o = document.createElement('option');
+        o.value = 'mes:' + m;
+        o.textContent = m;
+        og.appendChild(o);
+      });
+      fD.appendChild(og);
+    }
+  }
+  // Mantener selección previa si sigue existiendo
+  if ([...fD.options].some(o=>o.value===prev)) fD.value = prev;
+  else fD.value = 'latest';
+}
+
+function initFilters() {
+  const campanas = [...new Set(allData.map(r=>r.campana))].sort().reverse();
+  const cultivos  = [...new Set(allData.map(r=>r.cultivo))].sort();
+  const empresas  = [...new Set(allData.map(r=>r.empresa))].sort();
+  TODAS_EMPRESAS = empresas;
+
+  const fC = document.getElementById('f-campana');
+  campanas.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=c; fC.appendChild(o); });
+  if (campanas.length) fC.value = campanas[0];
+
+  const fCu = document.getElementById('f-cultivo');
+  cultivos.forEach(c  => { const o=document.createElement('option'); o.value=c; o.textContent=c; fCu.appendChild(o); });
+
+  // Multi-select empresa: un checkbox por empresa (todas tildadas = todas)
+  const opts = document.getElementById('f-empresa-opts');
+  opts.innerHTML = empresas.map(e => `
+    <label class="multi-opt">
+      <input type="checkbox" value="${e}" checked onchange="onEmpresaChange()">
+      <span class="dot" style="background:${col(e)}"></span>${e}
+    </label>`).join('');
+  updateEmpresaLabel();
+
+  populatePeriodo();
+
+  document.getElementById('f-campana').addEventListener('change', () => { populatePeriodo(); applyFilters(); });
+  document.getElementById('f-cultivo').addEventListener('change', applyFilters);
+  document.getElementById('f-dato').addEventListener('change', applyFilters);
+}
+
+function applyFilters() {
+  const campana = document.getElementById('f-campana').value;
+  const cultivo = document.getElementById('f-cultivo').value;
+  const empresasSel = getSelectedEmpresas();   // [] = todas
+  const dato    = document.getElementById('f-dato').value;
+
+  document.getElementById('badge-campana').textContent = campana || 'Todas';
+
+  let data = allData.filter(r =>
+    (!campana || r.campana === campana) &&
+    (!cultivo  || r.cultivo  === cultivo) &&
+    (empresasSel.length === 0 || empresasSel.includes(r.empresa))
+  );
+
+  if (dato === 'latest') {
+    // 1. Tomar el registro más reciente por empresa+cultivo+campaña
+    const groups = {};
+    data.forEach(r => {
+      const k = `${r.empresa}|${r.cultivo}|${r.campana}`;
+      if (!groups[k] || (r.mes && (!groups[k].mes || r.mes > groups[k].mes)))
+        groups[k] = r;
+    });
+    // 2. Por empresa+campaña, solo incluir cultivos del mes más reciente
+    const deduped = Object.values(groups);
+    const empCampGroups = {};
+    deduped.forEach(r => {
+      const k = `${r.empresa}|${r.campana}`;
+      if (!empCampGroups[k]) empCampGroups[k] = [];
+      empCampGroups[k].push(r);
+    });
+    filteredData = Object.values(empCampGroups).flatMap(rows => filterLatestMes(rows));
+  } else if (dato.startsWith('mes:')) {
+    // Mes específico: tomar exactamente las filas de ese mes
+    const mesSel = dato.slice(4);
+    filteredData = data.filter(r => r.mesStr === mesSel);
+  } else {
+    filteredData = data;
+  }
+
+  renderAll();
+}
+
+// ─── RENDER ALL ───────────────────────────────────────────────────────────────
+function renderAll() {
+  renderBase();
+  renderPosicion();
+  renderResultado();
+  renderEscenarios();
+  renderTabla();
+  const activeTab = document.querySelector('.tab.active')?.dataset.tab;
+  if (activeTab === 'evolucion') renderEvolucion();
+  if (activeTab === 'evol-resultado') renderEvolResultado();
+  if (activeTab === 'analisis') renderAnalisis();
+  if (activeTab === 'semaforo') renderSemaforo();
+}
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function col(emp) { return empresaColors[emp] || '#8b949e'; }
+
+// Datos del GRUPO completo (todas las empresas) para el período/campaña/cultivo actual.
+// Se usa como referencia constante en las cards, sin importar qué empresas estén filtradas.
+function getGrupoData() {
+  const campana = document.getElementById('f-campana').value;
+  const cultivo = document.getElementById('f-cultivo').value;
+  const dato    = document.getElementById('f-dato').value;
+  let g = allData.filter(r =>
+    (!campana || r.campana === campana) && (!cultivo || r.cultivo === cultivo)
+  );
+  if (dato === 'latest') {
+    const gk = {};
+    g.forEach(r => {
+      const k=`${r.empresa}|${r.cultivo}|${r.campana}`;
+      if(!gk[k]||(r.mes&&(!gk[k].mes||r.mes>gk[k].mes))) gk[k]=r;
+    });
+    const dedup = Object.values(gk);
+    const ec = {};
+    dedup.forEach(r => { const k=`${r.empresa}|${r.campana}`; (ec[k]=ec[k]||[]).push(r); });
+    g = Object.values(ec).flatMap(rows => filterLatestMes(rows));
+  } else if (dato.startsWith('mes:')) {
+    const mesSel = dato.slice(4);
+    g = g.filter(r => r.mesStr === mesSel);
+  }
+  return g;
+}
+
+// ─── CHART OPTIONS ────────────────────────────────────────────────────────────
+function darkOpts({ yFmt, xFmt, yRange, horizontal, stacked, tooltipFmt } = {}) {
+  const ax = { ticks: { color: '#8b949e', font:{size:11} }, grid: { color: '#21262d' } };
+  const opts = {
+    responsive: true, maintainAspectRatio: true,
+    animation: { duration: 400 },
+    plugins: {
+      legend: { labels: { color: '#8b949e', boxWidth: 10, font:{size:12} } },
+      tooltip: tooltipFmt ? { callbacks: { label: tooltipFmt } } : {}
+    },
+    scales: {}
+  };
+  if (horizontal) opts.indexAxis = 'y';
+  if (stacked) { opts.scales.x = {...ax, stacked: true}; opts.scales.y = {...ax, stacked: true}; }
+  else {
+    opts.scales.x = {...ax};
+    opts.scales.y = {...ax};
+    if (horizontal && xFmt) opts.scales.x.ticks = {...ax.ticks, callback: xFmt};
+    if (!horizontal && yFmt) opts.scales.y.ticks = {...ax.ticks, callback: yFmt};
+    if (!horizontal && yRange) { opts.scales.y.min = yRange[0]; opts.scales.y.max = yRange[1]; }
+    if (horizontal && yRange) { opts.scales.x.min = yRange[0]; opts.scales.x.max = yRange[1]; }
+  }
+  return opts;
+}
+
+// ─── TAB: BASE (Superficie & Rindes) ──────────────────────────────────────────
+function renderBase() {
+  const data = filteredData;
+  if (!data.length) return;
+
+  const empresas = [...new Set(data.map(r=>r.empresa))].sort();
+  const cultivos = [...new Set(data.map(r=>r.cultivo))].sort();
+
+  // Helper: superficie de un cultivo+empresa
+  const supOf = (cult, emp) =>
+    data.filter(r => r.cultivo===cult && r.empresa===emp).reduce((s,r)=>s+r.superficie,0);
+  const supCultivo = c => data.filter(r=>r.cultivo===c).reduce((s,r)=>s+r.superficie,0);
+  const supEmpresa = e => data.filter(r=>r.empresa===e).reduce((s,r)=>s+r.superficie,0);
+  const supTotal   = data.reduce((s,r)=>s+r.superficie,0);
+
+  // ── Cards resumen ──
+  const cultivoMayor = cultivos.map(c=>({c,s:supCultivo(c)})).sort((a,b)=>b.s-a.s)[0];
+  document.getElementById('cards-base-sup').innerHTML = `
+    <div class="card">
+      <div class="card-label">Superficie Total</div>
+      <div class="card-value blue">${fmt(supTotal)}</div>
+      <div class="card-sub">hectáreas sembradas</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Cultivos</div>
+      <div class="card-value">${cultivos.length}</div>
+      <div class="card-sub">distintos en el grupo</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Empresas</div>
+      <div class="card-value">${empresas.length}</div>
+      <div class="card-sub">con superficie cargada</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Cultivo Principal</div>
+      <div class="card-value green" style="font-size:20px">${cultivoMayor?.c||'–'}</div>
+      <div class="card-sub">${fmt(cultivoMayor?.s||0)} ha (${fmtPct((cultivoMayor?.s||0)/supTotal*100)})</div>
+    </div>`;
+
+  // ── Gráfico 1: superficie por cultivo, apilada por empresa ──
+  destroyChart('sup-cultivo');
+  charts['sup-cultivo'] = new Chart(document.getElementById('chart-sup-cultivo'), {
+    type:'bar',
+    data:{
+      labels: cultivos,
+      datasets: empresas.map(e => ({
+        label: e,
+        data: cultivos.map(c => supOf(c,e)),
+        backgroundColor: col(e)+'cc', borderColor: col(e), borderWidth:1
+      }))
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      plugins:{
+        legend:{ labels:{color:'#8b949e',boxWidth:10,font:{size:10}} },
+        tooltip:{ mode:'index', intersect:false,
+          callbacks:{ label:ctx=> ctx.raw>0 ? `  ${ctx.dataset.label}: ${fmt(ctx.raw)} ha` : null,
+            afterBody:items=>['─────────', `  Total: ${fmt(items.reduce((s,i)=>s+i.raw,0))} ha`] } }
+      },
+      scales:{
+        x:{ stacked:true, ticks:{color:'#8b949e',font:{size:10}}, grid:{color:'#21262d'} },
+        y:{ stacked:true, ticks:{color:'#8b949e',font:{size:11},callback:v=>fmt(v)}, grid:{color:'#21262d'} }
+      }
+    }
+  });
+
+  // ── Gráfico 2: superficie por empresa, apilada por cultivo ──
+  const cultColors = {};
+  cultivos.forEach((c,i)=> cultColors[c] = cultColor(c, i));
+  // Etiquetas: empresas + GRUPO al final
+  const labelsEmp = [...empresas, 'GRUPO'];
+  // Para cada cultivo, el % que representa en cada empresa (y en el grupo)
+  // Plugin: dibuja el % dentro de cada segmento (si entra el número)
+  const segLabelPlugin = {
+    id: 'segLabels',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      ctx.save();
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      chart.data.datasets.forEach((ds, di) => {
+        if (chart.getDatasetMeta(di).hidden) return;
+        const meta = chart.getDatasetMeta(di);
+        meta.data.forEach((bar, i) => {
+          const val = ds.data[i];
+          if (!val || val < 4) return;               // ignorar segmentos chicos
+          const h = Math.abs(bar.base - bar.y);
+          if (h < 13) return;                          // no entra el texto
+          ctx.fillStyle = contrastText(ds.borderColor);
+          ctx.fillText(Math.round(val) + '%', bar.x, (bar.y + bar.base) / 2);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
+  destroyChart('sup-empresa');
+  charts['sup-empresa'] = new Chart(document.getElementById('chart-sup-empresa'), {
+    type:'bar',
+    plugins: [segLabelPlugin],
+    data:{
+      labels: labelsEmp,
+      datasets: cultivos.map(c => ({
+        label: c,
+        data: labelsEmp.map(lbl => {
+          if (lbl === 'GRUPO') {
+            return supTotal>0 ? supCultivo(c)/supTotal*100 : 0;
+          }
+          const totEmp = supEmpresa(lbl);
+          return totEmp>0 ? supOf(c,lbl)/totEmp*100 : 0;
+        }),
+        // guardar has para el tooltip
+        _has: labelsEmp.map(lbl => lbl==='GRUPO' ? supCultivo(c) : supOf(c,lbl)),
+        backgroundColor: cultColors[c]+'cc', borderColor: cultColors[c], borderWidth:1
+      }))
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      plugins:{
+        legend:{ labels:{color:'#8b949e',boxWidth:10,font:{size:10}} },
+        tooltip:{ mode:'index', intersect:false,
+          callbacks:{
+            label:ctx=> ctx.raw>0.05
+              ? `  ${ctx.dataset.label}: ${fmtPct(ctx.raw)} (${fmt(ctx.dataset._has[ctx.dataIndex])} ha)`
+              : null
+          } }
+      },
+      scales:{
+        x:{ stacked:true, ticks:{color:'#8b949e',font:{size:11}}, grid:{color:'#21262d'} },
+        y:{ stacked:true, min:0, max:100,
+            ticks:{color:'#8b949e',font:{size:11},callback:v=>v+'%'}, grid:{color:'#21262d'} }
+      }
+    }
+  });
+
+  // ═══ RENDIMIENTOS ═══
+  renderRindes();
+}
+
+// Tabla de última estimación de rinde por cultivo × campaña + evolución
+function renderRindes() {
+  // Usar TODA la data (todas las campañas) para la tabla de rindes
+  const cultivoFiltro = document.getElementById('f-cultivo').value;
+  const empresaFiltro = getEmpresaFiltro();
+  let base = allData.filter(r =>
+    (!cultivoFiltro || r.cultivo===cultivoFiltro) &&
+    (!empresaFiltro || r.empresa===empresaFiltro) &&
+    r.rendimiento > 0
+  );
+
+  const campanas = [...new Set(base.map(r=>r.campana))].sort();
+  const cultivos = [...new Set(base.map(r=>r.cultivo))].sort();
+
+  // Para cada cultivo+campaña: tomar el último mes y promediar rinde ponderado por superficie
+  const rindeOf = (cult, camp) => {
+    const rows = base.filter(r=>r.cultivo===cult && r.campana===camp);
+    if (!rows.length) return null;
+    // último mes
+    const maxMes = rows.reduce((m,r)=> r.mes&&r.mes>m ? r.mes : m, new Date(0));
+    const last = rows.filter(r=> r.mes &&
+      r.mes.getFullYear()===maxMes.getFullYear() && r.mes.getMonth()===maxMes.getMonth());
+    return wAvg(last,'rendimiento');
+  };
+
+  const head = `<th style="text-align:left">Cultivo</th>` +
+    campanas.map(c=>`<th style="text-align:right">${c}</th>`).join('');
+  const body = cultivos.map(cult => {
+    const cells = campanas.map(camp => {
+      const r = rindeOf(cult, camp);
+      return `<td style="text-align:right">${r!=null && r>0 ? fmt(r,1) : '<span style=color:var(--border)>·</span>'}</td>`;
+    }).join('');
+    return `<tr><td><strong>${cult}</strong></td>${cells}</tr>`;
+  }).join('');
+  document.getElementById('tabla-rindes').innerHTML = `
+    <table class="cmp-table" style="min-width:600px">
+      <thead><tr>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+
+  // ── Evolución del rinde en la campaña seleccionada ──
+  const campSel = document.getElementById('f-campana').value || campanas[campanas.length-1];
+  const evolData = allData.filter(r =>
+    r.campana===campSel &&
+    (!cultivoFiltro || r.cultivo===cultivoFiltro) &&
+    (!empresaFiltro || r.empresa===empresaFiltro) &&
+    r.rendimiento > 0
+  );
+  const meses = [...new Set(evolData.map(r=>r.mesStr).filter(Boolean))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+  const cultEvol = [...new Set(evolData.map(r=>r.cultivo))].sort();
+  const cultColors2 = {};
+  cultEvol.forEach((c,i)=> cultColors2[c] = cultColor(c, i));
+
+  // Tendencia por cultivo: color y flecha según primer vs último valor
+  const trend = {};
+  cultEvol.forEach(c => {
+    const serie = meses.map(mes => {
+      const rs = evolData.filter(r=>r.cultivo===c && r.mesStr===mes);
+      return rs.length ? wAvg(rs,'rendimiento') : null;
+    }).filter(v => v != null && v > 0);
+    const ini = serie[0], fin = serie[serie.length-1];
+    const pct = ini ? (fin-ini)/ini*100 : 0;
+    let color, arrow;
+    if (pct > 2)       { color = '#3fb950'; arrow = '▲'; }
+    else if (pct < -2) { color = '#f85149'; arrow = '▼'; }
+    else               { color = '#d29922'; arrow = '▬'; }
+    trend[c] = { color, arrow, fin };
+  });
+
+  // Plugin: dibuja el valor + flecha al final de cada línea, coloreado por tendencia
+  const endLabelPlugin = {
+    id: 'endLabels',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      ctx.save();
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const placed = [];  // para evitar solapamiento vertical
+      chart.data.datasets.forEach((ds, di) => {
+        const meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        // último punto con valor
+        let last = null;
+        for (let i = meta.data.length - 1; i >= 0; i--) {
+          if (ds.data[i] != null) { last = meta.data[i]; break; }
+        }
+        if (!last) return;
+        const t = trend[ds.label] || { color: ds.borderColor, arrow: '' };
+        let y = last.y;
+        // separar si está muy pegado a otra etiqueta ya colocada
+        while (placed.some(p => Math.abs(p - y) < 12)) y -= 12;
+        placed.push(y);
+        const txt = `${t.arrow} ${fmt(t.fin,1)}t`;
+        ctx.fillStyle = t.color;
+        ctx.fillText(txt, last.x + 8, y);
+      });
+      ctx.restore();
+    }
+  };
+
+  destroyChart('evol-rinde');
+  charts['evol-rinde'] = new Chart(document.getElementById('chart-evol-rinde'), {
+    type:'line',
+    plugins: [endLabelPlugin],
+    data:{
+      labels: meses,
+      datasets: cultEvol.map(c => ({
+        label: c,
+        data: meses.map(mes => {
+          const rs = evolData.filter(r=>r.cultivo===c && r.mesStr===mes);
+          return rs.length ? wAvg(rs,'rendimiento') : null;
+        }),
+        borderColor: cultColors2[c], backgroundColor: cultColors2[c]+'22',
+        fill:false, tension:0.3, spanGaps:true, pointRadius:3
+      }))
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      layout:{ padding:{ right:56 } },   // espacio para las etiquetas al final
+      plugins:{
+        legend:{ labels:{color:'#8b949e',boxWidth:10,font:{size:10}} },
+        tooltip:{ mode:'index', intersect:false,
+          callbacks:{ label:ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmt(ctx.raw,1)} t/ha` : null } }
+      },
+      scales:{
+        x:{ ticks:{color:'#8b949e',font:{size:10}}, grid:{color:'#21262d'} },
+        y:{ ticks:{color:'#8b949e',font:{size:11},callback:v=>fmt(v,1)+' t'}, grid:{color:'#21262d'} }
+      }
+    }
+  });
+}
+
+// ─── TAB: POSICIÓN COMERCIAL ──────────────────────────────────────────────────
+function renderPosicion() {
+  const data = filteredData;
+  if (!data.length) return;
+
+  const empresaFiltro = getEmpresaFiltro();
+
+  // Grupo: siempre de TODOS los datos del mismo período/campaña/cultivo (sin filtro empresa)
+  const grupoData = getGrupoData();
+
+  const grpVenta     = wAvgVenta(grupoData);
+  const grpCobertura = wAvg(grupoData, 'pctCobertura');
+  const grpPVenta    = wAvgPVenta(grupoData);
+  const grpPDisp     = wAvg(grupoData, 'pDisp');
+  const grpRC        = calcRCProm(grupoData);
+
+  // Si hay empresa seleccionada, los valores "main" son de esa empresa
+  const empVenta     = wAvgVenta(data);
+  const empCobertura = wAvg(data, 'pctCobertura');
+  const empPVenta    = wAvgPVenta(data);
+  const empPDisp     = wAvg(data, 'pDisp');
+  const empRC        = calcRCProm(data);
+  const totalHa      = data.reduce((s,r)=>s+r.superficie,0);
+
+  const hasEmp = !!empresaFiltro;
+
+  // Valores en grande = empresa si hay filtro, grupo si no
+  const mainVenta     = hasEmp ? empVenta     : grpVenta;
+  const mainCobertura = hasEmp ? empCobertura : grpCobertura;
+  const mainPVenta    = hasEmp ? empPVenta    : grpPVenta;
+  const mainRC        = hasEmp ? empRC        : grpRC;
+
+  // Helper para construir card con valor empresa arriba y grupo abajo
+  function metricCard(label, mainVal, mainFmt, mainColorFn, showGroup, groupVal, groupFmt, subExtra='') {
+    const mainColor = mainColorFn(mainVal);
+    const diff = hasEmp ? (mainVal - groupVal) : null;
+    const diffStr = diff !== null
+      ? `<span style="color:${diff>=0?'var(--green)':'var(--red)'}; font-size:11px; margin-left:4px">${diff>=0?'▲':'▼'} ${groupFmt(Math.abs(diff))} vs grupo</span>`
+      : '';
+    const groupLine = showGroup && hasEmp
+      ? `<div class="card-sub" style="margin-top:6px">
+           <span style="color:var(--muted)">Grupo: </span>
+           <strong style="color:var(--text)">${groupFmt(groupVal)}</strong>${diffStr}
+         </div>`
+      : `<div class="card-sub">Prom. ponderado por ha</div>`;
+    return `
+      <div class="card">
+        <div class="card-label">${label}${hasEmp ? ` — <span style="color:${col(empresaFiltro)}">${empresaFiltro}</span>` : ' — Grupo'}</div>
+        <div class="card-value ${mainColor}" style="font-size:${hasEmp?'32px':'26px'}">${mainFmt(mainVal)}</div>
+        ${groupLine}${subExtra}
+      </div>`;
+  }
+
+  document.getElementById('cards-posicion').innerHTML =
+    metricCard('% Vendido', mainVenta, fmtPct, v=>v>=60?'green':v>=35?'yellow':'red', true, grpVenta, fmtPct) +
+    `<div class="card">
+      <div class="card-label">Precio Venta${hasEmp?` — <span style="color:${col(empresaFiltro)}">${empresaFiltro}</span>`:' — Grupo'}</div>
+      <div class="card-value blue" style="font-size:${hasEmp?'32px':'26px'}">${fmtUSD(mainPVenta)}</div>
+      ${hasEmp
+        ? `<div class="card-sub" style="margin-top:6px">
+             <span style="color:var(--muted)">Grupo: </span><strong style="color:var(--text)">${fmtUSD(grpPVenta)}</strong>
+             <span style="color:${mainPVenta>=grpPVenta?'var(--green)':'var(--red)'}; font-size:11px; margin-left:4px">
+               ${mainPVenta>=grpPVenta?'▲':'▼'} ${fmtUSD(Math.abs(mainPVenta-grpPVenta))} vs grupo
+             </span>
+           </div>
+           <div class="card-sub">Disp. actual: ${fmtUSD(empPDisp)}</div>`
+        : `<div class="card-sub">Disp. actual: ${fmtUSD(grpPDisp)}</div>`}
+    </div>` +
+    metricCard('% Cobertura', mainCobertura, fmtPct, v=>v>=60?'green':v>=35?'yellow':'red', true, grpCobertura, fmtPct) +
+    `<div class="card">
+      <div class="card-label">Resultado Comercial${hasEmp?` — <span style="color:${col(empresaFiltro)}">${empresaFiltro}</span>`:' — Grupo'}</div>
+      <div class="card-value ${mainRC>=0?'green':'red'}" style="font-size:${hasEmp?'32px':'26px'}">${fmtUSD(mainRC)}/ha</div>
+      ${hasEmp
+        ? `<div class="card-sub" style="margin-top:6px">
+             <span style="color:var(--muted)">Grupo: </span><strong style="color:var(--text)">${fmtUSD(grpRC)}/ha</strong>
+             <span style="color:${mainRC>=grpRC?'var(--green)':'var(--red)'}; font-size:11px; margin-left:4px">
+               ${mainRC>=grpRC?'▲':'▼'} ${fmtUSD(Math.abs(mainRC-grpRC))} vs grupo
+             </span>
+           </div>`
+        : `<div class="card-sub">Precio venta vs disponible</div>`}
+    </div>` +
+    `<div class="card">
+      <div class="card-label">Superficie Total</div>
+      <div class="card-value">${fmt(totalHa)}</div>
+      <div class="card-sub">Hectáreas en análisis</div>
+    </div>`;
+
+  // Aliases for charts (always use group averages as reference lines)
+  const avgVenta     = grpVenta;
+  const avgCobertura = grpCobertura;
+  const avgPVenta    = grpPVenta;
+  const avgPDisp     = grpPDisp;
+  const avgPProd     = wAvg(grupoData, 'pProd');
+  const avgPRef      = wAvg(grupoData, 'avgPDispAcum');
+
+  const empMap = groupBy(data, 'empresa');
+  const empresas = Object.keys(empMap).sort();
+
+  // % Vendido
+  const ventaVals = empresas.map(e => wAvgVenta(empMap[e]));
+  destroyChart('venta');
+  charts['venta'] = new Chart(document.getElementById('chart-venta'), {
+    type: 'bar',
+    data: {
+      labels: empresas,
+      datasets: [
+        { label: '% Vendido', data: ventaVals,
+          backgroundColor: empresas.map(e=>col(e)+'99'), borderColor: empresas.map(e=>col(e)),
+          borderWidth:1, borderRadius:4 },
+        { label: `Promedio grupo (${fmtPct(avgVenta)})`,
+          data: empresas.map(()=>avgVenta), type:'line',
+          borderColor:'#ffffff44', borderDash:[6,3], pointRadius:0, fill:false }
+      ]
+    },
+    options: darkOpts({ yFmt: v=>fmtPct(v), yRange:[0,100],
+      tooltipFmt: ctx => `${ctx.dataset.label}: ${fmtPct(ctx.raw)}` })
+  });
+
+  // Precio Venta vs Disp vs P. Ref. Acum.
+  const pVentaVals   = empresas.map(e => wAvgPVenta(empMap[e]));
+  const pDispVals    = empresas.map(e => wAvg(empMap[e],'pDisp'));
+  const pRefAcumVals = empresas.map(e => wAvg(empMap[e],'avgPDispAcum'));
+  destroyChart('precio');
+  charts['precio'] = new Chart(document.getElementById('chart-precio'), {
+    type: 'bar',
+    data: {
+      labels: empresas,
+      datasets: [
+        { label: 'Precio Venta',    data: pVentaVals,
+          backgroundColor:'#58a6ff88', borderColor:'#58a6ff', borderWidth:1, borderRadius:4 },
+        { label: 'Precio Disponible', data: pDispVals,
+          backgroundColor:'#d2992244', borderColor:'#d29922', borderWidth:1, borderRadius:4 },
+        { label: 'P. Ref. Acum.',   data: pRefAcumVals,
+          backgroundColor:'#bc8cff55', borderColor:'#bc8cff', borderWidth:1, borderRadius:4 }
+      ]
+    },
+    options: darkOpts({ yFmt: v=>fmtUSD(v),
+      tooltipFmt: ctx => `${ctx.dataset.label}: ${fmtUSD(ctx.raw)}` })
+  });
+
+  // Cobertura
+  const cobVals = empresas.map(e => wAvg(empMap[e],'pctCobertura'));
+  destroyChart('cobertura');
+  charts['cobertura'] = new Chart(document.getElementById('chart-cobertura'), {
+    type: 'bar',
+    data: {
+      labels: empresas,
+      datasets: [
+        { label: '% Cobertura', data: cobVals,
+          backgroundColor: empresas.map(e=>col(e)+'88'), borderColor: empresas.map(e=>col(e)),
+          borderWidth:1, borderRadius:4 },
+        { label: `Promedio (${fmtPct(avgCobertura)})`,
+          data: empresas.map(()=>avgCobertura), type:'line',
+          borderColor:'#ffffff44', borderDash:[6,3], pointRadius:0, fill:false }
+      ]
+    },
+    options: darkOpts({ yFmt: v=>fmtPct(v), yRange:[0,100],
+      tooltipFmt: ctx => `${ctx.dataset.label}: ${fmtPct(ctx.raw)}` })
+  });
+
+  // Scatter: precio vs % vendido
+  destroyChart('scatter');
+  charts['scatter'] = new Chart(document.getElementById('chart-scatter'), {
+    type: 'scatter',
+    data: {
+      datasets: empresas.map(emp => ({
+        label: emp,
+        data: empMap[emp].map(r => ({ x: r.pctVenta, y: r.pVenta, cultivo: r.cultivo })),
+        backgroundColor: col(emp)+'bb', borderColor: col(emp), pointRadius:8, pointHoverRadius:11
+      }))
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true, animation:{duration:400},
+      plugins: {
+        legend: { labels: { color:'#8b949e', boxWidth:10, font:{size:11} } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label} · ${ctx.raw.cultivo}: ${fmtPct(ctx.raw.x)} vendido @ ${fmtUSD(ctx.raw.y)}` } }
+      },
+      scales: {
+        x: { title:{display:true,text:'% Vendido',color:'#8b949e'},
+             ticks:{color:'#8b949e',callback:v=>fmtPct(v)}, grid:{color:'#21262d'}, min:0,max:100 },
+        y: { title:{display:true,text:'Precio Venta (U$S)',color:'#8b949e'},
+             ticks:{color:'#8b949e',callback:v=>fmtUSD(v)}, grid:{color:'#21262d'} }
+      }
+    }
+  });
+
+  // Comparison table — por empresa con detalle por cultivo expandible
+  const tableRows = [];
+  empresas.forEach(e => {
+    const eRows = empMap[e];
+    const venta    = wAvgVenta(eRows);
+    const cob      = wAvg(eRows,'pctCobertura');
+    const pv       = wAvgPVenta(eRows);
+    const pd       = wAvg(eRows,'pDisp');
+    const pprod    = wAvg(eRows,'pProd');
+    const pref     = wAvg(eRows,'avgPDispAcum');
+    const rc       = calcRCProm(eRows);
+    const ha       = eRows.reduce((s,r)=>s+r.superficie,0);
+    const ventaCls = venta>avgVenta?'above':venta<avgVenta-5?'below':'at';
+    const cobCls   = cob>avgCobertura?'above':cob<avgCobertura-5?'below':'at';
+    const rcCls    = rc>=0?'above':'below';
+
+    // Fila empresa (resumen)
+    tableRows.push(`<tr style="cursor:pointer" onclick="toggleCultivos('${e}')" title="Click para ver detalle por cultivo">
+      <td><span class="dot" style="background:${col(e)}"></span><strong>${e}</strong>
+        <span id="arrow-${e}" style="font-size:10px;color:var(--muted);margin-left:4px">▶</span></td>
+      <td class="${ventaCls}">${fmtPct(venta)}</td>
+      <td>${pprod > 0 ? fmtUSD(pprod) : '<span style="color:var(--muted)">–</span>'}</td>
+      <td>${pv > 0 ? fmtUSD(pv) : '<span style="color:var(--muted)">–</span>'}</td>
+      <td>${pd > 0 ? fmtUSD(pd) : '<span style="color:var(--muted)">–</span>'}</td>
+      <td>${pref > 0 ? `<span style="color:var(--purple)">${fmtUSD(pref)}</span>` : '<span style="color:var(--muted)">–</span>'}</td>
+      <td class="${rcCls}" style="font-weight:700">${rc>=0?'+':''}${fmtUSD(rc)}</td>
+      <td class="${cobCls}">${fmtPct(cob)}</td>
+      <td>${fmt(ha)} ha</td>
+    </tr>`);
+
+    // Filas cultivo (ocultas por defecto)
+    eRows.sort((a,b) => a.cultivo.localeCompare(b.cultivo)).forEach(r => {
+      const rcR    = r.rcCalc || 0;
+      const rcCls2 = rcR > 5 ? 'above' : rcR < -5 ? 'below' : 'at';
+      const pvR    = r.pVenta > 0 ? fmtUSD(r.pVenta) : '<span style="color:var(--muted)">–</span>';
+      const pRef   = r.avgPDispAcum != null ? fmtUSD(r.avgPDispAcum) : '<span style="color:var(--muted)">–</span>';
+      const m = 'color:var(--muted); font-size:11px';
+      tableRows.push(`<tr class="cultivo-row cultivo-${e}" style="display:none; background:var(--s3)">
+        <td style="padding-left:28px; ${m}">↳ ${r.cultivo}</td>
+        <td style="${m}">${fmtPct(r.pctVenta)}</td>
+        <td style="${m}">${fmtUSD(r.pProd)}</td>
+        <td style="${m}">${pvR}</td>
+        <td style="${m}">${fmtUSD(r.pDisp)}</td>
+        <td style="${m}; color:var(--purple)">${pRef}</td>
+        <td class="${rcCls2}" style="font-size:11px; font-weight:700">${rcR>=0?'+':''}${fmtUSD(rcR)}</td>
+        <td style="${m}">${fmtPct(r.pctCobertura)}</td>
+        <td style="${m}">${fmt(r.superficie)} ha</td>
+      </tr>`);
+    });
+  });
+
+  document.getElementById('tabla-posicion').innerHTML = `
+    <div style="font-size:11px; color:var(--muted); margin-bottom:8px">
+      💡 Hacé click en una empresa para ver el detalle por cultivo
+    </div>
+    <table class="cmp-table">
+      <thead><tr>
+        <th>Empresa / Cultivo</th><th>% Vendido</th><th>P. Prod</th><th>P. Venta</th>
+        <th>P. Disp</th><th>P. Ref. Acum.</th><th>Res. Comercial</th><th>% Cobertura</th><th>Superficie</th>
+      </tr></thead>
+      <tbody>
+        ${tableRows.join('')}
+        <tr style="border-top:2px solid var(--border); background:var(--s2)">
+          <td><strong>GRUPO</strong></td>
+          <td><strong>${fmtPct(avgVenta)}</strong></td>
+          <td><strong>${avgPProd>0?fmtUSD(avgPProd):'–'}</strong></td>
+          <td><strong>${fmtUSD(avgPVenta)}</strong></td>
+          <td><strong>${fmtUSD(avgPDisp)}</strong></td>
+          <td><strong style="color:var(--purple)">${avgPRef>0?fmtUSD(avgPRef):'–'}</strong></td>
+          <td class="${grpRC>=0?'above':'below'}"><strong>${grpRC>=0?'+':''}${fmtUSD(grpRC)}</strong></td>
+          <td><strong>${fmtPct(avgCobertura)}</strong></td>
+          <td><strong>${fmt(totalHa)} ha</strong></td>
+        </tr>
+      </tbody>
+    </table>`;
+
+  // Gráfico de evolución de precios por cultivo
+  renderPrecios();
+}
+
+// Evolución mensual de precios (Prod / Disp / Ref.Acum / Venta) para un cultivo
+function renderPrecios() {
+  const campana = document.getElementById('f-campana').value;
+  const empresasSel = getSelectedEmpresas();   // [] = todas
+
+  // Poblar el selector de cultivo con los disponibles en la campaña actual
+  const sel = document.getElementById('f-precio-cultivo');
+  const cultivosCamp = [...new Set(allData.filter(r =>
+    (!campana || r.campana===campana) &&
+    (empresasSel.length===0 || empresasSel.includes(r.empresa))
+  ).map(r=>r.cultivo))].sort();
+  const prev = sel.value;
+  if (sel.dataset.filled !== cultivosCamp.join('|')) {
+    sel.innerHTML = cultivosCamp.map(c=>`<option value="${c}">${c}</option>`).join('');
+    sel.dataset.filled = cultivosCamp.join('|');
+    if (cultivosCamp.includes(prev)) sel.value = prev;
+  }
+  const cultivo = sel.value || cultivosCamp[0];
+  if (!cultivo) { destroyChart('precios-evol'); return; }
+
+  // Datos del cultivo elegido en la campaña, filtrando empresas seleccionadas
+  const data = allData.filter(r =>
+    (!campana || r.campana===campana) &&
+    r.cultivo===cultivo &&
+    (empresasSel.length===0 || empresasSel.includes(r.empresa))
+  );
+  const meses = [...new Set(data.map(r=>r.mesStr).filter(Boolean))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+
+  const serieProd = meses.map(m => { const rs=data.filter(r=>r.mesStr===m && r.pProd>0); return rs.length?wAvg(rs,'pProd'):null; });
+  const serieDisp = meses.map(m => { const rs=data.filter(r=>r.mesStr===m && r.pDisp>0); return rs.length?wAvg(rs,'pDisp'):null; });
+  const serieRef  = meses.map(m => { const rs=data.filter(r=>r.mesStr===m && r.avgPDispAcum>0); return rs.length?wAvg(rs,'avgPDispAcum'):null; });
+  const serieVta  = meses.map(m => { const rs=data.filter(r=>r.mesStr===m); const v=wAvgPVenta(rs); return v>0?v:null; });
+
+  destroyChart('precios-evol');
+  charts['precios-evol'] = new Chart(document.getElementById('chart-precios-evol'), {
+    type:'line',
+    data:{
+      labels: meses,
+      datasets:[
+        { label:'P. Disponible (mes)', data:serieDisp,
+          borderColor:'#d29922', backgroundColor:'#d2992222', borderWidth:2.5, fill:false, tension:0.3, spanGaps:true, pointRadius:3 },
+        { label:'P. Ref. Acumulado',   data:serieRef,
+          borderColor:'#bc8cff', backgroundColor:'#bc8cff22', borderWidth:2.5, fill:false, tension:0.3, spanGaps:true, pointRadius:3 },
+        { label:'P. Producción',       data:serieProd,
+          borderColor:'#58a6ff', backgroundColor:'#58a6ff22', borderWidth:1.5, borderDash:[5,3], fill:false, tension:0.3, spanGaps:true, pointRadius:2 },
+        { label:'P. Venta',            data:serieVta,
+          borderColor:'#3fb950', backgroundColor:'#3fb95022', borderWidth:2.5, fill:false, tension:0.3, spanGaps:true, pointRadius:3 },
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      plugins:{
+        legend:{ labels:{color:'#8b949e',boxWidth:14,font:{size:11}} },
+        tooltip:{ mode:'index', intersect:false,
+          callbacks:{ label:ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmtUSD(ctx.raw)}` : null } }
+      },
+      scales:{
+        x:{ ticks:{color:'#8b949e',font:{size:10}}, grid:{color:'#21262d'} },
+        y:{ ticks:{color:'#8b949e',font:{size:11},callback:v=>fmtUSD(v)}, grid:{color:'#21262d'} }
+      }
+    }
+  });
+}
+
+window.toggleCultivos = function(empresa) {
+  const rows = document.querySelectorAll(`.cultivo-${empresa}`);
+  const arrow = document.getElementById(`arrow-${empresa}`);
+  const isHidden = rows[0]?.style.display === 'none';
+  rows.forEach(r => r.style.display = isHidden ? 'table-row' : 'none');
+  if (arrow) arrow.textContent = isHidden ? '▼' : '▶';
+}
+
+window.toggleAnCom = function(key) {
+  const rows = document.querySelectorAll(`.ancom-${key}`);
+  const arrow = document.getElementById(`ancom-arrow-${key}`);
+  const isHidden = rows[0]?.style.display === 'none';
+  rows.forEach(r => r.style.display = isHidden ? 'table-row' : 'none');
+  if (arrow) arrow.textContent = isHidden ? '▼' : '▶';
+}
+
+// ─── TAB: RESULTADO & MB ──────────────────────────────────────────────────────
+function renderResultado() {
+  const data = filteredData;
+  if (!data.length) return;
+
+  const empresaFiltro = getEmpresaFiltro();
+  const hasEmp = !!empresaFiltro;
+
+  // Grupo: siempre sobre todos los datos (sin filtro empresa), mismo período
+  const grupoData = getGrupoData();
+
+  const grpMB   = calcMBProm(grupoData);
+  const grpMN   = calcMNProm(grupoData);
+  const grpRC   = calcRCProm(grupoData);   // ÷ Has sin 2da (consistente con MB, MN y Posición Comercial)
+  const grpTotalMB = grupoData.reduce((s,r)=>s+r.mb*r.superficie,0);
+  const grpTotalHA = grupoData.reduce((s,r)=>s+r.hasSin2da,0);
+
+  // Empresa (o grupo si no hay filtro)
+  const mainMB   = calcMBProm(data);
+  const mainMN   = calcMNProm(data);
+  const mainRC   = calcRCProm(data);   // ÷ Has sin 2da (consistente con MB, MN y Posición Comercial)
+  const totalMB  = data.reduce((s,r)=>s+r.mb*r.superficie,0);
+  const totalHA  = data.reduce((s,r)=>s+r.hasSin2da,0);
+
+  function resCard(label, mainVal, grpVal, unit='/ha') {
+    const cls = mainVal>=0?'green':'red';
+    const diff = hasEmp ? mainVal - grpVal : null;
+    const diffStr = diff !== null
+      ? `<span style="color:${diff>=0?'var(--green)':'var(--red)'}; font-size:11px; margin-left:4px">${diff>=0?'▲':'▼'} ${fmtUSD(Math.abs(diff))} vs grupo</span>`
+      : '';
+    const sub = hasEmp
+      ? `<div class="card-sub" style="margin-top:6px; line-height:1.6"><span style="color:var(--muted)">Grupo: </span><strong style="color:var(--text)">${fmtUSD(grpVal)}${unit}</strong> ${diffStr}</div>`
+      : `<div class="card-sub">Prom. ponderado por ha</div>`;
+    return `<div class="card">
+      <div class="card-label">${label}${hasEmp ? ` — <span style="color:${col(empresaFiltro)}">${empresaFiltro}</span>` : ' — Grupo'}</div>
+      <div class="card-value ${cls}" style="font-size:${hasEmp?'32px':'26px'}">${fmtUSD(mainVal)}${unit}</div>
+      ${sub}
+    </div>`;
+  }
+
+  document.getElementById('cards-resultado').innerHTML =
+    resCard('MB Prom.', mainMB, grpMB) +
+    resCard('MN Prom.', mainMN, grpMN) +
+    resCard('Resultado Comercial', mainRC, grpRC);
+
+  // Aliases for chart reference lines
+  const avgMB = grpMB;
+  const avgRC = grpRC;
+
+  const empMap  = groupBy(data,'empresa');
+  const empresas= Object.keys(empMap).sort();
+
+  const mbVals = empresas.map(e=>calcMBProm(empMap[e]));
+  destroyChart('mb');
+  charts['mb'] = new Chart(document.getElementById('chart-mb'), {
+    type:'bar',
+    data:{
+      labels:empresas,
+      datasets:[
+        { label:'MB (U$S/ha)', data:mbVals,
+          backgroundColor:mbVals.map(v=>v>=0?'#3fb95088':'#f8514988'),
+          borderColor:mbVals.map(v=>v>=0?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 },
+        { label:`Prom. grupo (${fmtUSD(avgMB)})`,
+          data:empresas.map(()=>avgMB), type:'line',
+          borderColor:'#ffffff44', borderDash:[6,3], pointRadius:0, fill:false }
+      ]
+    },
+    options:darkOpts({yFmt:v=>fmtUSD(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtUSD(ctx.raw)}`})
+  });
+
+  const mnBarVals = empresas.map(e=>calcMNProm(empMap[e]));
+  destroyChart('mn');
+  charts['mn'] = new Chart(document.getElementById('chart-mn'), {
+    type:'bar',
+    data:{
+      labels:empresas,
+      datasets:[
+        { label:'MN (U$S/ha)', data:mnBarVals,
+          backgroundColor:mnBarVals.map(v=>v>=0?'#3fb95088':'#f8514988'),
+          borderColor:mnBarVals.map(v=>v>=0?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 },
+        { label:`Prom. grupo (${fmtUSD(grpMN)})`,
+          data:empresas.map(()=>grpMN), type:'line',
+          borderColor:'#ffffff44', borderDash:[6,3], pointRadius:0, fill:false }
+      ]
+    },
+    options:darkOpts({yFmt:v=>fmtUSD(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtUSD(ctx.raw)}`})
+  });
+
+  const rcVals = empresas.map(e=>calcRCProm(empMap[e]));
+  destroyChart('rc');
+  charts['rc'] = new Chart(document.getElementById('chart-rc'), {
+    type:'bar',
+    data:{
+      labels:empresas,
+      datasets:[{ label:'Resultado Comercial', data:rcVals,
+        backgroundColor:rcVals.map(v=>v>=0?'#3fb95088':'#f8514988'),
+        borderColor:rcVals.map(v=>v>=0?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 }]
+    },
+    options:darkOpts({yFmt:v=>fmtUSD(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtUSD(ctx.raw)}`})
+  });
+
+  // Rentabilidad: MN / (GD + ALQ + Gerenc + Estruc + Adm) × 100
+  const rentVals = empresas.map(e=>calcRentabilidad(empMap[e]));
+  const grpRent  = calcRentabilidad(data);
+  destroyChart('rentabilidad');
+  charts['rentabilidad'] = new Chart(document.getElementById('chart-rentabilidad'), {
+    type:'bar',
+    data:{
+      labels:empresas,
+      datasets:[
+        { label:'Rentabilidad', data:rentVals,
+          backgroundColor:rentVals.map(v=>v>=0?'#3fb95088':'#f8514988'),
+          borderColor:rentVals.map(v=>v>=0?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 },
+        { label:`Prom. grupo (${fmtPct(grpRent)})`,
+          data:empresas.map(()=>grpRent), type:'line',
+          borderColor:'#ffffff44', borderDash:[6,3], pointRadius:0, fill:false }
+      ]
+    },
+    options:darkOpts({yFmt:v=>fmtPct(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtPct(ctx.raw)}`})
+  });
+
+  // Componentes por ha física (Has sin 2da) → las barras cierran con la etiqueta MB/MN
+  const inData     = empresas.map(e => wAvgFisica(empMap[e],'ingresos'));
+  const gdData     = empresas.map(e => wAvgFisica(empMap[e],'gd'));
+  const alqData    = empresas.map(e => wAvgFisica(empMap[e],'alq'));
+  const gerencData = empresas.map(e => wAvgFisica(empMap[e],'gerenc'));
+  const estrucData = empresas.map(e => wAvgFisica(empMap[e],'estruc'));
+  const admData    = empresas.map(e => wAvgFisica(empMap[e],'adm'));
+  const interesData= empresas.map(e => wAvgFisica(empMap[e],'interes'));
+  const intermData = empresas.map(e => wAvgFisica(empMap[e],'intermedias'));
+
+  // Plugin: solo etiqueta del total sobre cada barra (sin mini-card)
+  function stackTotalPlugin(totals) {
+    return {
+      id: 'stackTotal',
+      afterDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        totals.forEach((val, i) => {
+          const meta = chart.getDatasetMeta(0);
+          if (!meta.data[i]) return;
+          const x     = meta.data[i].x;
+          const isPos = val >= 0;
+          const color = isPos ? '#3fb950' : '#f85149';
+          const absVal = Math.abs(Math.round(val));
+          const text   = (isPos ? '+' : '-') + fmt(absVal);
+          ctx.save();
+          ctx.font = 'bold 9px sans-serif';
+          ctx.fillStyle = color;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          const yLine = isPos
+            ? scales.y.getPixelForValue(val) - 3
+            : scales.y.getPixelForValue(val) + 12;
+          ctx.fillText(text, x, Math.max(chartArea.top + 10, Math.min(chartArea.bottom - 2, yLine)));
+          ctx.restore();
+        });
+      }
+    };
+  }
+
+  // Plugin: valor dentro de cada segmento (si entra)
+  const segValuePlugin = {
+    id: 'segValues',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      ctx.save();
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      chart.data.datasets.forEach((ds, di) => {
+        if (chart.getDatasetMeta(di).hidden) return;
+        const meta = chart.getDatasetMeta(di);
+        meta.data.forEach((bar, i) => {
+          const raw = ds.data[i];
+          if (raw == null || Math.abs(raw) < 1) return;
+          const h = Math.abs(bar.base - bar.y);
+          if (h < 14) return;                       // no entra el texto
+          ctx.fillStyle = contrastText(ds.borderColor);
+          ctx.fillText(fmt(Math.abs(Math.round(raw))), bar.x, (bar.y + bar.base)/2);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
+  // Opciones compartidas para desglose
+  const tooltipDesglose = {
+    mode: 'index',        // muestra todos los datasets de esa columna
+    intersect: false,
+    callbacks: {
+      label: ctx => {
+        const v = ctx.raw;
+        if (v === 0) return null;   // omitir rubros en cero
+        return `  ${ctx.dataset.label}: ${fmtUSD(Math.abs(v))}`;
+      },
+      afterBody: (items) => {
+        // Línea final con el total (MB o MN)
+        const total = items.reduce((s, it) => s + it.raw, 0);
+        const isPos = total >= 0;
+        return [`─────────────────`, `  Total: ${isPos?'+':''}${fmtUSD(total)}`];
+      }
+    }
+  };
+
+  const desgloseScales = {
+    x:{ stacked:true, ticks:{color:'#8b949e',font:{size:11}}, grid:{color:'#21262d'} },
+    y:{ stacked:true, ticks:{color:'#8b949e',font:{size:11},callback:v=>fmtUSD(Math.abs(v))}, grid:{color:'#21262d'} }
+  };
+
+  // Gráfico 1: Desglose MB
+  destroyChart('desglose-mb');
+  charts['desglose-mb'] = new Chart(document.getElementById('chart-desglose-mb'), {
+    type:'bar',
+    plugins: [stackTotalPlugin(mbVals), segValuePlugin],
+    data:{
+      labels: empresas,
+      datasets:[
+        { label:'Ingresos',    data:inData,            backgroundColor:'#3fb95066', borderColor:'#3fb950', borderWidth:1, borderRadius:4 },
+        { label:'G. Directos', data:gdData.map(v=>-v), backgroundColor:'#f8514988', borderColor:'#f85149', borderWidth:1, borderRadius:4 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      layout:{ padding:{ top:24 } },
+      plugins:{ legend:{ labels:{ color:'#8b949e', boxWidth:10, font:{size:11} } }, tooltip: tooltipDesglose },
+      scales: desgloseScales
+    }
+  });
+
+  // Gráfico 2: Desglose MN
+  const mnVals = empresas.map(e => calcMNProm(empMap[e]));
+  destroyChart('desglose-mn');
+  charts['desglose-mn'] = new Chart(document.getElementById('chart-desglose-mn'), {
+    type:'bar',
+    plugins: [stackTotalPlugin(mnVals), segValuePlugin],
+    data:{
+      labels: empresas,
+      datasets:[
+        { label:'Ingresos',    data:inData,                backgroundColor:'#3fb95066', borderColor:'#3fb950', borderWidth:1 },
+        { label:'G. Directos', data:gdData.map(v=>-v),     backgroundColor:'#f8514988', borderColor:'#f85149', borderWidth:1 },
+        { label:'Alquiler',    data:alqData.map(v=>-v),    backgroundColor:'#d2992266', borderColor:'#d29922', borderWidth:1 },
+        { label:'Gerenc.',     data:gerencData.map(v=>-v), backgroundColor:'#bc8cff55', borderColor:'#bc8cff', borderWidth:1 },
+        { label:'Estructura',  data:estrucData.map(v=>-v), backgroundColor:'#79c0ff55', borderColor:'#79c0ff', borderWidth:1 },
+        { label:'Adm.',        data:admData.map(v=>-v),    backgroundColor:'#ffa65755', borderColor:'#ffa657', borderWidth:1 },
+        { label:'Interés',     data:interesData.map(v=>-v),backgroundColor:'#ff7b7255', borderColor:'#ff7b72', borderWidth:1 },
+        { label:'Intermedias', data:intermData.map(v=>-v), backgroundColor:'#56d36455', borderColor:'#56d364', borderWidth:1 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:true, animation:{duration:400},
+      layout:{ padding:{ top:24 } },
+      plugins:{ legend:{ labels:{ color:'#8b949e', boxWidth:10, font:{size:11} } }, tooltip: tooltipDesglose },
+      scales: desgloseScales
+    }
+  });
+}
+
+// ─── TAB: ESCENARIOS ─────────────────────────────────────────────────────────
+function renderEscenarios() {
+  const data = filteredData;
+  if (!data.length) return;
+
+  const cultivos = [...new Set(data.map(r=>r.cultivo))].sort();
+  const cultMap  = groupBy(data,'cultivo');
+
+  // Bases por cultivo
+  window._scBase = {};
+  cultivos.forEach(c => {
+    window._scBase[c] = {
+      precio: wAvg(cultMap[c],'pDisp'),
+      rdto:   wAvg(cultMap[c],'rendimiento')
+    };
+  });
+
+  document.getElementById('sliders-content').innerHTML = cultivos.map(c => {
+    const b = window._scBase[c];
+    const id = c.replace(/[\s/.]/g,'_');
+    return `
+      <div style="display:grid; grid-template-columns:120px 1fr 1fr; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--border)">
+        <span style="font-size:12px; color:var(--text); font-weight:500">${c}</span>
+        <!-- Precio -->
+        <div style="display:flex; flex-direction:column; gap:2px">
+          <div style="display:flex; align-items:center; gap:6px">
+            <input type="range" min="-40" max="40" value="0" step="5" style="flex:1; accent-color:var(--blue)"
+                   id="slP-${id}" data-cultivo="${c}" data-type="precio" data-base="${b.precio}"
+                   oninput="onScenarioSlider(this)">
+            <span id="svP-${id}" style="font-size:11px; font-weight:700; min-width:62px; text-align:right; color:var(--blue)">${fmtUSD(b.precio)}</span>
+          </div>
+          <div style="text-align:right; font-size:10px; color:var(--muted)" id="spctP-${id}">0%</div>
+        </div>
+        <!-- Rendimiento -->
+        <div style="display:flex; flex-direction:column; gap:2px">
+          <div style="display:flex; align-items:center; gap:6px">
+            <input type="range" min="-40" max="40" value="0" step="5" style="flex:1; accent-color:var(--yellow)"
+                   id="slR-${id}" data-cultivo="${c}" data-type="rdto" data-base="${b.rdto}"
+                   oninput="onScenarioSlider(this)">
+            <span id="svR-${id}" style="font-size:11px; font-weight:700; min-width:48px; text-align:right; color:var(--yellow)">${fmt(b.rdto,1)} t</span>
+          </div>
+          <div style="text-align:right; font-size:10px; color:var(--muted)" id="spctR-${id}">0%</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  updateScenarioTable();
+}
+
+window.onScenarioSlider = function(el) {
+  const c    = el.dataset.cultivo;
+  const type = el.dataset.type;
+  const base = parseFloat(el.dataset.base);
+  const pct  = parseFloat(el.value);
+  const newVal = base * (1 + pct/100);
+  const id   = c.replace(/[\s/.]/g,'_');
+  const pctStr = (pct>=0?'+':'')+pct+'%';
+  if (type === 'precio') {
+    document.getElementById(`svP-${id}`).textContent = fmtUSD(newVal);
+    document.getElementById(`svP-${id}`).style.color = pct>0?'var(--green)':pct<0?'var(--red)':'var(--blue)';
+    document.getElementById(`spctP-${id}`).textContent = pctStr;
+  } else {
+    document.getElementById(`svR-${id}`).textContent = fmt(newVal,1)+' t';
+    document.getElementById(`svR-${id}`).style.color = pct>0?'var(--green)':pct<0?'var(--red)':'var(--yellow)';
+    document.getElementById(`spctR-${id}`).textContent = pctStr;
+  }
+  updateScenarioTable();
+};
+
+window.resetScenarios = function() {
+  document.querySelectorAll('[id^="slP-"],[id^="slR-"]').forEach(sl => {
+    sl.value = 0;
+    window.onScenarioSlider(sl);
+  });
+};
+
+function getScenarioAdj() {
+  // Devuelve el PORCENTAJE de cambio por cultivo (no el valor absoluto),
+  // así con 0% el delta es exactamente cero para cada fila individual.
+  const adj = {};
+  document.querySelectorAll('[id^="slP-"]').forEach(sl => {
+    const c = sl.dataset.cultivo;
+    if (!adj[c]) adj[c] = {};
+    adj[c].precioPct = parseFloat(sl.value) / 100;
+  });
+  document.querySelectorAll('[id^="slR-"]').forEach(sl => {
+    const c = sl.dataset.cultivo;
+    if (!adj[c]) adj[c] = {};
+    adj[c].rdtoPct = parseFloat(sl.value) / 100;
+  });
+  return adj;
+}
+
+function updateScenarioTable() {
+  const data = filteredData;
+  if (!data.length) return;
+  const adj = getScenarioAdj();
+
+  const empMap  = groupBy(data,'empresa');
+  const empresas= Object.keys(empMap).sort();
+
+  const results = empresas.map(emp => {
+    const rows = empMap[emp];
+
+    // MB Base: usa exactamente la misma función que el resto del tablero
+    const origMB = calcMBProm(rows);
+
+    // Denominador consistente con calcMBProm
+    const denom = sumHasSin2da(rows) || rows.reduce((s,r)=>s+r.superficie,0);
+
+    // ΔMB por escenario: aplica el % del slider al valor INDIVIDUAL de cada fila
+    // (con 0% el delta es exactamente cero)
+    let deltaTotalSup = 0;
+    rows.forEach(r => {
+      const precioPct = adj[r.cultivo]?.precioPct ?? 0;
+      const rdtoPct   = adj[r.cultivo]?.rdtoPct   ?? 0;
+      const pctSin    = (100 - r.pctVenta) / 100;
+
+      // Nuevo precio disp y rendimiento partiendo del valor individual de la fila
+      const adjP = r.pDisp * (1 + precioPct);
+      const adjR = r.rendimiento * (1 + rdtoPct);
+
+      // Δ precio: afecta la porción no vendida
+      const deltaPrecio = (adjP - r.pDisp) * r.rendimiento * pctSin;
+      // Δ rendimiento: afecta todo el ingreso (más/menos toneladas al precio disponible)
+      const deltaRdto   = (adjR - r.rendimiento) * r.pDisp;
+
+      deltaTotalSup += (deltaPrecio + deltaRdto) * r.superficie;
+    });
+
+    const deltaPerHa = denom ? deltaTotalSup / denom : 0;
+    const newMB  = origMB + deltaPerHa;
+    // El MN se mueve con el mismo delta: los costos fijos (ALQ, Gerenc, etc.) no cambian
+    const origMN = calcMNProm(rows);
+    const newMN  = origMN + deltaPerHa;
+    const delta  = deltaPerHa;
+    return { emp, origMB, newMB, origMN, newMN, delta };
+  });
+
+  // Tabla
+  document.getElementById('scenario-table-wrap').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th rowspan="2" style="text-align:left;padding:6px 8px;color:var(--muted);font-size:11px;vertical-align:bottom">Empresa</th>
+          <th colspan="2" style="text-align:center;padding:4px 8px;color:var(--blue);font-size:11px;border-left:1px solid var(--border)">MARGEN BRUTO</th>
+          <th colspan="2" style="text-align:center;padding:4px 8px;color:var(--purple);font-size:11px;border-left:1px solid var(--border)">MARGEN NETO</th>
+          <th rowspan="2" style="text-align:right;padding:6px 8px;color:var(--muted);font-size:11px;vertical-align:bottom;border-left:1px solid var(--border)">Δ</th>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:right;padding:4px 8px;color:var(--muted);font-size:10px;border-left:1px solid var(--border)">Base</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted);font-size:10px">Escenario</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted);font-size:10px;border-left:1px solid var(--border)">Base</th>
+          <th style="text-align:right;padding:4px 8px;color:var(--muted);font-size:10px">Escenario</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${results.map(r=>`
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:7px 8px"><span class="dot" style="background:${col(r.emp)}"></span><strong>${r.emp}</strong></td>
+            <td style="text-align:right;padding:7px 8px;color:var(--muted);border-left:1px solid var(--border)">${fmtUSD(r.origMB)}</td>
+            <td style="text-align:right;padding:7px 8px;font-weight:700">${fmtUSD(r.newMB)}</td>
+            <td style="text-align:right;padding:7px 8px;color:var(--muted);border-left:1px solid var(--border)">${fmtUSD(r.origMN)}</td>
+            <td style="text-align:right;padding:7px 8px;font-weight:700;color:${r.newMN>=0?'var(--text)':'var(--red)'}">${fmtUSD(r.newMN)}</td>
+            <td style="text-align:right;padding:7px 8px;font-weight:700;border-left:1px solid var(--border);color:${r.delta>=0?'var(--green)':'var(--red)'}">
+              ${r.delta>=0?'+':''}${fmtUSD(r.delta)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  // Gráfico
+  destroyChart('scenario');
+  charts['scenario'] = new Chart(document.getElementById('chart-scenario'), {
+    type:'bar',
+    data:{
+      labels: empresas,
+      datasets:[
+        { label:'MB Base',      data:results.map(r=>r.origMB), backgroundColor:'#58a6ff33', borderColor:'#58a6ff', borderWidth:1, borderRadius:4 },
+        { label:'MB Escenario', data:results.map(r=>r.newMB),
+          backgroundColor:results.map(r=>r.newMB>=r.origMB?'#3fb95066':'#f8514966'),
+          borderColor:results.map(r=>r.newMB>=r.origMB?'#3fb950':'#f85149'), borderWidth:1, borderRadius:4 },
+      ]
+    },
+    options:darkOpts({yFmt:v=>fmtUSD(v), tooltipFmt:ctx=>`${ctx.dataset.label}: ${fmtUSD(ctx.raw)}`})
+  });
+}
+
+// ─── TAB: EVOLUCIÓN ───────────────────────────────────────────────────────────
+function renderEvolucion() {
+  const campana = document.getElementById('f-campana').value;
+  const cultivo = document.getElementById('f-cultivo').value;
+  const empresa = getEmpresaFiltro();
+
+  const data = allData.filter(r =>
+    (!campana||r.campana===campana)&&(!cultivo||r.cultivo===cultivo)&&(!empresa||r.empresa===empresa)
+  );
+
+  const meses   = [...new Set(data.map(r=>r.mesStr).filter(Boolean))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+  const empresas= [...new Set(data.map(r=>r.empresa))].sort();
+
+  const lineOpts = (yFmt, yLabel, tooltipFmt) => ({
+    responsive:true, maintainAspectRatio:true, animation:{duration:400},
+    plugins:{
+      legend:{labels:{color:'#8b949e',boxWidth:10,font:{size:11}}},
+      tooltip:{mode:'index',intersect:false, callbacks:{label:tooltipFmt||undefined}}
+    },
+    scales:{
+      x:{ticks:{color:'#8b949e',font:{size:11}},grid:{color:'#21262d'}},
+      y:{ticks:{color:'#8b949e',font:{size:11},callback:yFmt},grid:{color:'#21262d'}}
+    }
+  });
+
+  destroyChart('evol-venta');
+  charts['evol-venta'] = new Chart(document.getElementById('chart-evol-venta'), {
+    type:'line',
+    data:{
+      labels:meses,
+      datasets:empresas.map(emp=>({
+        label:emp,
+        data:meses.map(mes=>{
+          const rs=data.filter(r=>r.empresa===emp&&r.mesStr===mes);
+          return rs.length?wAvgVenta(rs):null;
+        }),
+        borderColor:col(emp), backgroundColor:col(emp)+'22',
+        fill:false, tension:0.3, spanGaps:true, pointRadius:4
+      }))
+    },
+    options:lineOpts(v=>fmtPct(v),'% Vendido',ctx=>`${ctx.dataset.label}: ${fmtPct(ctx.raw)}`)
+  });
+
+  destroyChart('evol-precio');
+  charts['evol-precio'] = new Chart(document.getElementById('chart-evol-precio'), {
+    type:'line',
+    data:{
+      labels:meses,
+      datasets:empresas.map(emp=>({
+        label:emp,
+        data:meses.map(mes=>{
+          const rs=data.filter(r=>r.empresa===emp&&r.mesStr===mes);
+          return rs.length?wAvgPVenta(rs):null;
+        }),
+        borderColor:col(emp), fill:false, tension:0.3, spanGaps:true, pointRadius:4
+      }))
+    },
+    options:lineOpts(v=>fmtUSD(v),'Precio Venta',ctx=>`${ctx.dataset.label}: ${fmtUSD(ctx.raw)}`)
+  });
+}
+
+// ─── TAB: EVOLUCIÓN RESULTADO (Rentabilidad / MB / MN mes a mes) ───────────────
+function renderEvolResultado() {
+  const campana = document.getElementById('f-campana').value;
+  const cultivo = document.getElementById('f-cultivo').value;
+  const empresasSel = getSelectedEmpresas();   // [] = todas
+
+  // Datos del período (sin filtrar empresa: necesitamos el grupo completo)
+  const data = allData.filter(r =>
+    (!campana || r.campana===campana) && (!cultivo || r.cultivo===cultivo)
+  );
+
+  const meses = [...new Set(data.map(r=>r.mesStr).filter(Boolean))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+
+  // Empresas a dibujar como línea individual: las seleccionadas (si es un subconjunto)
+  const empresasLinea = empresasSel.length ? empresasSel.slice().sort() : [];
+
+  // Construye datasets para una métrica dada
+  function buildDatasets(metricFn) {
+    const ds = empresasLinea.map(emp => ({
+      label: emp,
+      data: meses.map(mes => {
+        const rs = data.filter(r => r.empresa===emp && r.mesStr===mes);
+        return rs.length ? metricFn(rs) : null;
+      }),
+      borderColor: col(emp), backgroundColor: col(emp)+'22',
+      fill:false, tension:0.3, spanGaps:true, pointRadius:3
+    }));
+    // Línea GRUPO (promedio de todas las empresas por mes) — siempre como referencia
+    ds.push({
+      label: 'GRUPO',
+      data: meses.map(mes => {
+        const rs = data.filter(r => r.mesStr===mes);
+        return rs.length ? metricFn(rs) : null;
+      }),
+      borderColor: '#ffffff', backgroundColor: '#ffffff22',
+      borderDash: empresasLinea.length ? [6,3] : [],
+      borderWidth: 2, fill:false, tension:0.3, spanGaps:true, pointRadius:3
+    });
+    return ds;
+  }
+
+  const lineOpts = (yFmt, tooltipFmt) => ({
+    responsive:true, maintainAspectRatio:true, animation:{duration:400},
+    plugins:{
+      legend:{labels:{color:'#8b949e',boxWidth:10,font:{size:11}}},
+      tooltip:{mode:'index',intersect:false, callbacks:{label:tooltipFmt}}
+    },
+    scales:{
+      x:{ticks:{color:'#8b949e',font:{size:11}},grid:{color:'#21262d'}},
+      y:{ticks:{color:'#8b949e',font:{size:11},callback:yFmt},grid:{color:'#21262d'}}
+    }
+  });
+
+  // Rentabilidad %
+  destroyChart('evol-rent');
+  charts['evol-rent'] = new Chart(document.getElementById('chart-evol-rent'), {
+    type:'line',
+    data:{ labels:meses, datasets:buildDatasets(rs=>calcRentabilidad(rs)) },
+    options:lineOpts(v=>fmtPct(v), ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmtPct(ctx.raw)}` : null)
+  });
+
+  // Margen Bruto U$S/ha
+  destroyChart('evol-mb');
+  charts['evol-mb'] = new Chart(document.getElementById('chart-evol-mb'), {
+    type:'line',
+    data:{ labels:meses, datasets:buildDatasets(rs=>calcMBProm(rs)) },
+    options:lineOpts(v=>fmtUSD(v), ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmtUSD(ctx.raw)}` : null)
+  });
+
+  // Margen Neto U$S/ha
+  destroyChart('evol-mn');
+  charts['evol-mn'] = new Chart(document.getElementById('chart-evol-mn'), {
+    type:'line',
+    data:{ labels:meses, datasets:buildDatasets(rs=>calcMNProm(rs)) },
+    options:lineOpts(v=>fmtUSD(v), ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmtUSD(ctx.raw)}` : null)
+  });
+}
+
+// ─── TAB: ANÁLISIS COMPARATIVO ────────────────────────────────────────────────
+// Snapshot de una empresa: filas del último mes (o mes elegido) en la campaña actual
+function getEmpresaSnapshot(empresa) {
+  const campana = document.getElementById('f-campana').value;
+  const dato    = document.getElementById('f-dato').value;
+  let d = allData.filter(r => (!campana || r.campana===campana) && r.empresa===empresa);
+  if (dato === 'latest' || dato === 'all' || !dato) {
+    // último mes con datos de la empresa
+    const gk = {};
+    d.forEach(r => { const k=r.cultivo; if(!gk[k]||(r.mes&&(!gk[k].mes||r.mes>gk[k].mes))) gk[k]=r; });
+    d = filterLatestMes(Object.values(gk));
+  } else if (dato.startsWith('mes:')) {
+    d = d.filter(r => r.mesStr === dato.slice(4));
+  }
+  return d;
+}
+
+function swapAnalisis() {
+  const a = document.getElementById('an-empA'), b = document.getElementById('an-empB');
+  const tmp = a.value; a.value = b.value; b.value = tmp;
+  renderAnalisis();
+}
+
+function renderAnalisis() {
+  const campana  = document.getElementById('f-campana').value;
+  const empresas = [...new Set(allData.filter(r=>!campana||r.campana===campana).map(r=>r.empresa))].sort();
+  if (empresas.length < 2) {
+    document.getElementById('an-insights').innerHTML = '<span style="color:var(--muted)">Se necesitan al menos dos empresas.</span>';
+    return;
+  }
+
+  // Poblar selectores (default: mejor MN vs peor MN)
+  const selA = document.getElementById('an-empA'), selB = document.getElementById('an-empB');
+  if (selA.dataset.filled !== empresas.join('|')) {
+    const mnByEmp = empresas.map(e => ({e, mn: calcMNProm(getEmpresaSnapshot(e))})).sort((a,b)=>b.mn-a.mn);
+    const opts = empresas.map(e=>`<option value="${e}">${e}</option>`).join('');
+    selA.innerHTML = opts; selB.innerHTML = opts;
+    selA.value = mnByEmp[0].e;
+    selB.value = mnByEmp[mnByEmp.length-1].e;
+    selA.dataset.filled = empresas.join('|'); selB.dataset.filled = empresas.join('|');
+  }
+  const A = selA.value, B = selB.value;
+  const rowsA = getEmpresaSnapshot(A), rowsB = getEmpresaSnapshot(B);
+  if (!rowsA.length || !rowsB.length) {
+    document.getElementById('an-insights').innerHTML = '<span style="color:var(--muted)">Sin datos para la comparación en esta campaña.</span>';
+    document.getElementById('an-cards').innerHTML = '';
+    document.getElementById('an-tabla-ind').innerHTML = '';
+    document.getElementById('an-tabla-com').innerHTML = '';
+    document.getElementById('an-tabla-cult').innerHTML = '';
+    return;
+  }
+
+  // ── Métricas ponderadas ──
+  // Componentes ponderados por hectárea física (Has sin 2da) → aditivos con MB/MN
+  const met = rows => ({
+    mn:   calcMNProm(rows),
+    mb:   calcMBProm(rows),
+    rent: calcRentabilidad(rows),
+    in:   wAvgFisica(rows,'ingresos'),
+    gd:   wAvgFisica(rows,'gd'),
+    alq:  wAvgFisica(rows,'alq'),   // alquiler / superficie física
+    ovh:  wAvgFisica(rows,'gerenc') + wAvgFisica(rows,'estruc') + wAvgFisica(rows,'adm'),
+    interm: wAvgFisica(rows,'intermedias'),
+    pctV: wAvgVenta(rows),
+    pVta: wAvgPVenta(rows),
+    sup:  rows.reduce((s,r)=>s+r.superficie,0),
+  });
+  const mA = met(rowsA), mB = met(rowsB);
+  const cA = col(A), cB = col(B);
+
+  // ── Cards ──
+  const dMN = mA.mn - mB.mn;
+  const ganador = dMN >= 0 ? A : B;
+  document.getElementById('an-cards').innerHTML = `
+    <div class="card">
+      <div class="card-label">MN — <span style="color:${cA}">${A}</span></div>
+      <div class="card-value ${mA.mn>=0?'green':'red'}">${fmtUSD(mA.mn)}/ha</div>
+      <div class="card-sub">Rentabilidad ${fmtPct(mA.rent)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">MN — <span style="color:${cB}">${B}</span></div>
+      <div class="card-value ${mB.mn>=0?'green':'red'}">${fmtUSD(mB.mn)}/ha</div>
+      <div class="card-sub">Rentabilidad ${fmtPct(mB.rent)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Diferencia de MN</div>
+      <div class="card-value ${dMN>=0?'green':'red'}" style="font-size:26px">${dMN>=0?'+':''}${fmtUSD(dMN)}/ha</div>
+      <div class="card-sub">Mejor: <strong style="color:${col(ganador)}">${ganador}</strong></div>
+    </div>`;
+
+  // ── Insights: descomposición del gap de MN por componente ──
+  // MN = IN − GD − ALQ − OVH + Intermedias (todo por ha física).  Δ = suma de contribuciones.
+  const comps = [
+    { lbl:'Ingresos', a:mA.in, b:mB.in, higherBetter:true,
+      phrase:(w,hi,lo)=>`<strong>Ingresos:</strong> <strong style="color:${col(w)}">${w}</strong> genera más ingresos (${fmtUSD(hi)} vs ${fmtUSD(lo)}).` },
+    { lbl:'Gastos Directos', a:mA.gd, b:mB.gd, higherBetter:false,
+      phrase:(w,hi,lo)=>`<strong>Gastos Directos:</strong> <strong style="color:${col(w)}">${w}</strong> tiene menos gastos directos (${fmtUSD(lo)} vs ${fmtUSD(hi)}).` },
+    { lbl:'Alquiler', a:mA.alq, b:mB.alq, higherBetter:false,
+      phrase:(w,hi,lo)=>`<strong>Alquiler:</strong> <strong style="color:${col(w)}">${w}</strong> paga menos alquiler (${fmtUSD(lo)} vs ${fmtUSD(hi)}).` },
+    { lbl:'Gastos de Estructura', a:mA.ovh, b:mB.ovh, higherBetter:false,
+      phrase:(w,hi,lo)=>`<strong>Gastos de Estructura:</strong> <strong style="color:${col(w)}">${w}</strong> tiene menos gastos de estructura (${fmtUSD(lo)} vs ${fmtUSD(hi)}).` },
+    { lbl:'Intermedias', a:mA.interm, b:mB.interm, higherBetter:true,
+      phrase:(w,hi,lo)=>`<strong>Intermedias:</strong> aporta ${fmtUSD(hi-lo)}/ha a favor de <strong style="color:${col(w)}">${w}</strong>.` },
+  ].map(c => ({ ...c, contrib: (c.higherBetter ? (c.a-c.b) : -(c.a-c.b)) }))
+   .sort((x,y)=>Math.abs(y.contrib)-Math.abs(x.contrib));
+
+  const bullets = [];
+  // Siempre lidera con la Empresa A (el primer selector) — cambia al intercambiar
+  bullets.push(`<strong style="color:${cA}">${A}</strong> tiene un Margen Neto ${fmtUSD(Math.abs(dMN))}/ha ${dMN>=0?'mayor':'menor'} que <strong style="color:${cB}">${B}</strong>.`);
+  // Top 2 drivers
+  comps.slice(0,2).forEach(c => {
+    if (Math.abs(c.contrib) < 1) return;
+    const winner = c.contrib >= 0 ? A : B;
+    const hi = Math.max(c.a, c.b), lo = Math.min(c.a, c.b);
+    bullets.push(c.phrase(winner, hi, lo));
+  });
+  // Comercialización (mostrar valor del ganador primero)
+  const dP = mA.pVta - mB.pVta, dV = mA.pctV - mB.pctV;
+  if (mA.pVta>0 && mB.pVta>0 && Math.abs(dP) >= 3) {
+    const mejor = dP>=0?A:B, hi=Math.max(mA.pVta,mB.pVta), lo=Math.min(mA.pVta,mB.pVta);
+    bullets.push(`<strong>Comercialización:</strong> <strong style="color:${col(mejor)}">${mejor}</strong> vende a mejor precio (${fmtUSD(hi)} vs ${fmtUSD(lo)}).`);
+  }
+  if (Math.abs(dV) >= 5) {
+    const mejor = dV>=0?A:B, hi=Math.max(mA.pctV,mB.pctV), lo=Math.min(mA.pctV,mB.pctV);
+    bullets.push(`<strong>Avance de ventas:</strong> <strong style="color:${col(mejor)}">${mejor}</strong> tiene más vendido (${fmtPct(hi)} vs ${fmtPct(lo)}).`);
+  }
+  // Rendimiento: cultivo común de mayor superficie
+  const cultsA = new Set(rowsA.map(r=>r.cultivo)), cultsB = new Set(rowsB.map(r=>r.cultivo));
+  const comunes = [...cultsA].filter(c=>cultsB.has(c));
+  if (comunes.length) {
+    const cult = comunes.map(c => ({c, sup: rowsA.filter(r=>r.cultivo===c).reduce((s,r)=>s+r.superficie,0)}))
+      .sort((x,y)=>y.sup-x.sup)[0].c;
+    const rA = wAvg(rowsA.filter(r=>r.cultivo===cult),'rendimiento');
+    const rB = wAvg(rowsB.filter(r=>r.cultivo===cult),'rendimiento');
+    if (Math.abs(rA-rB) >= 0.2) {
+      const mejor = rA>=rB?A:B, hi=Math.max(rA,rB), lo=Math.min(rA,rB);
+      bullets.push(`<strong>Rendimiento (${cult}):</strong> <strong style="color:${col(mejor)}">${mejor}</strong> rinde mejor (${fmt(hi,1)}t vs ${fmt(lo,1)}t).`);
+    }
+  }
+  // Mix: mayor diferencia de participación de superficie
+  const allCults = [...new Set([...cultsA, ...cultsB])];
+  const shareDiffs = allCults.map(c => {
+    const sA = rowsA.filter(r=>r.cultivo===c).reduce((s,r)=>s+r.superficie,0)/mA.sup*100;
+    const sB = rowsB.filter(r=>r.cultivo===c).reduce((s,r)=>s+r.superficie,0)/mB.sup*100;
+    return { c, d: sA-sB };
+  }).sort((x,y)=>Math.abs(y.d)-Math.abs(x.d));
+  if (shareDiffs.length && Math.abs(shareDiffs[0].d) >= 8) {
+    const s = shareDiffs[0];
+    const mas = s.d>=0?A:B;
+    bullets.push(`<strong>Mix de cultivos:</strong> <strong style="color:${col(mas)}">${mas}</strong> dedica ${fmtPct(Math.abs(s.d))} más de su superficie a ${s.c}.`);
+  }
+  // Cultivo estrella: mejor MN/ha que ocupa poca superficie (aporta más margen que superficie)
+  const estrella = (rows, totSup, emp) => {
+    const cults = [...new Set(rows.map(r=>r.cultivo))];
+    let best = null;
+    cults.forEach(c => {
+      const rc = rows.filter(r=>r.cultivo===c);
+      const supC = rc.reduce((s,r)=>s+r.superficie,0);
+      const share = totSup ? supC/totSup*100 : 0;
+      if (share < 3) return;                         // ignorar plots muy chicos
+      const mnHa = wAvg(rc,'mn');                     // por superficie propia (los 2da no dan 0)
+      if (mnHa > 0 && (!best || mnHa > best.mnHa)) best = { c, share, mnHa };
+    });
+    return best;
+  };
+  [ {rows:rowsA, sup:mA.sup, emp:A}, {rows:rowsB, sup:mB.sup, emp:B} ].forEach(x => {
+    const e = estrella(x.rows, x.sup, x.emp);
+    if (e) bullets.push(`<strong>Cultivo estrella de <span style="color:${col(x.emp)}">${x.emp}</span>:</strong> ${e.c} rinde el mejor margen (${fmtUSD(e.mnHa)}/ha) ocupando solo ${fmtPct(e.share)} de la superficie.`);
+  });
+  document.getElementById('an-insights').innerHTML =
+    `<ul style="margin:0; padding-left:18px; line-height:2; font-size:13px; color:var(--text)">
+       ${bullets.map(b=>`<li>${b}</li>`).join('')}
+     </ul>`;
+
+  // ── Tabla indicadores (U$S/ha) ──
+  const rowInd = (lbl, a, b, fmtFn=fmtUSD, betterHigh=true) => {
+    const d = a - b;
+    const cls = Math.abs(d)<0.5 ? '' : (d>0)===betterHigh ? 'above' : 'below';
+    const dCls = d>=0 ? 'above' : 'below';
+    return `<tr>
+      <td>${lbl}</td>
+      <td style="text-align:right; color:${cA}; font-weight:600">${fmtFn(a)}</td>
+      <td style="text-align:right; color:${cB}; font-weight:600">${fmtFn(b)}</td>
+      <td style="text-align:right" class="${dCls}">${d>=0?'+':''}${fmtFn(d)}</td>
+    </tr>`;
+  };
+  document.getElementById('an-tabla-ind').innerHTML = `
+    <table class="cmp-table" style="min-width:420px">
+      <thead><tr>
+        <th>Indicador</th>
+        <th style="text-align:right"><span class="dot" style="background:${cA}"></span>${A}</th>
+        <th style="text-align:right"><span class="dot" style="background:${cB}"></span>${B}</th>
+        <th style="text-align:right">Δ</th>
+      </tr></thead>
+      <tbody>
+        ${rowInd('Ingresos', mA.in, mB.in)}
+        ${rowInd('Gastos Directos', mA.gd, mB.gd, fmtUSD, false)}
+        ${rowInd('Alquiler', mA.alq, mB.alq, fmtUSD, false)}
+        ${rowInd('Gastos Estructura', mA.ovh, mB.ovh, fmtUSD, false)}
+        ${rowInd('Margen Bruto', mA.mb, mB.mb)}
+        ${rowInd('Margen Neto', mA.mn, mB.mn)}
+        ${rowInd('Rentabilidad', mA.rent, mB.rent, fmtPct)}
+      </tbody>
+    </table>`;
+
+  // ── Tabla comercialización & rindes ──
+  // Gasto comercial %: (P.Prod × GtosCom − Flete) / P.Prod, ponderado por toneladas
+  const gcomPct = rows => {
+    let num=0, den=0;
+    rows.forEach(r => {
+      if (!r.pProd) return;
+      const tons = (r.superficie||0) * (r.rendimiento||0);
+      // Gasto Comercial % = 1 − ((P.Prod × Gtos.Com − Flete) / P.Prod)
+      const pct  = (1 - (r.pProd * (r.gtosCom||1) - (r.flete||0)) / r.pProd) * 100;
+      num += pct*tons; den += tons;
+    });
+    return den ? num/den : null;
+  };
+  const pVtaCult = (rows, c) => { const rc=rows.filter(r=>r.cultivo===c); const v=wAvgPVenta(rc); return v>0?v:null; };
+  const gcomCult = (rows, c) => { const rc=rows.filter(r=>r.cultivo===c); return rc.length?gcomPct(rc):null; };
+
+  // Fila expandible con detalle por cultivo
+  const expRow = (key, lbl, a, b, fmtFn) => {
+    const d = (a!=null&&b!=null)? a-b : null;
+    return `<tr style="cursor:pointer" onclick="toggleAnCom('${key}')" title="Click para ver por cultivo">
+      <td>${lbl} <span id="ancom-arrow-${key}" style="font-size:10px;color:var(--muted)">▶</span></td>
+      <td style="text-align:right; color:${cA}; font-weight:600">${a!=null?fmtFn(a):'–'}</td>
+      <td style="text-align:right; color:${cB}; font-weight:600">${b!=null?fmtFn(b):'–'}</td>
+      <td style="text-align:right" class="${d==null?'':d>=0?'above':'below'}">${d!=null?(d>=0?'+':'')+fmtFn(d):''}</td>
+    </tr>`;
+  };
+  const subRows = (key, fnA, fnB, fmtFn) => allCults.map(c => {
+    const a=fnA(c), b=fnB(c);
+    if (a==null && b==null) return '';
+    const d = (a!=null&&b!=null)? a-b : null;
+    const m = 'color:var(--muted); font-size:11px';
+    return `<tr class="ancom-${key}" style="display:none; background:var(--s3)">
+      <td style="padding-left:24px; ${m}"><span class="dot" style="background:${cultColor(c)}"></span>${c}</td>
+      <td style="text-align:right; ${m}">${a!=null?fmtFn(a):'·'}</td>
+      <td style="text-align:right; ${m}">${b!=null?fmtFn(b):'·'}</td>
+      <td style="text-align:right; font-size:11px" class="${d==null?'':d>=0?'above':'below'}">${d!=null?(d>=0?'+':'')+fmtFn(d):''}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('an-tabla-com').innerHTML = `
+    <table class="cmp-table" style="min-width:420px">
+      <thead><tr>
+        <th>Indicador</th>
+        <th style="text-align:right"><span class="dot" style="background:${cA}"></span>${A}</th>
+        <th style="text-align:right"><span class="dot" style="background:${cB}"></span>${B}</th>
+        <th style="text-align:right">Δ</th>
+      </tr></thead>
+      <tbody>
+        ${rowInd('% Vendido', mA.pctV, mB.pctV, fmtPct)}
+        ${expRow('pv', 'Precio Venta', mA.pVta, mB.pVta, fmtUSD)}
+        ${subRows('pv', c=>pVtaCult(rowsA,c), c=>pVtaCult(rowsB,c), fmtUSD)}
+        ${expRow('gc', 'Gasto Comercial', gcomPct(rowsA), gcomPct(rowsB), fmtPct)}
+        ${subRows('gc', c=>gcomCult(rowsA,c), c=>gcomCult(rowsB,c), fmtPct)}
+        ${rowInd('Superficie (ha)', mA.sup, mB.sup, v=>fmt(v,0))}
+      </tbody>
+    </table>
+    <div style="font-size:11px; color:var(--muted); margin-top:8px;">
+      💡 Clickeá <strong>Precio Venta</strong> o <strong>Gasto Comercial</strong> para ver el detalle por cultivo.
+      Gasto Comercial % = 1 − (P.Prod × Gtos.Com − Flete) / P.Prod.
+    </div>`;
+
+  // ── Comparación por cultivo (MB/ha, ordenado de mayor a menor) ──
+  // MB/ha por cultivo: ponderado por la superficie PROPIA del cultivo (no la física),
+  // para que los cultivos de 2da también muestren su margen real.
+  const cultInfo = allCults.map(c => {
+    const rA = rowsA.filter(r=>r.cultivo===c), rB = rowsB.filter(r=>r.cultivo===c);
+    const supA = rA.reduce((s,r)=>s+r.superficie,0), supB = rB.reduce((s,r)=>s+r.superficie,0);
+    return {
+      c,
+      supA, supB,
+      rdA: rA.length?wAvg(rA,'rendimiento'):null, rdB: rB.length?wAvg(rB,'rendimiento'):null,
+      mbA: rA.length?wAvg(rA,'mb'):null,           mbB: rB.length?wAvg(rB,'mb'):null,
+      shA: mA.sup?supA/mA.sup*100:0,               shB: mB.sup?supB/mB.sup*100:0,
+    };
+  });
+  // Ordenar por el mayor MB entre las dos empresas, de mayor a menor
+  cultInfo.sort((x,y) => {
+    const mx = Math.max(x.mbA ?? -1e9, x.mbB ?? -1e9);
+    const my = Math.max(y.mbA ?? -1e9, y.mbB ?? -1e9);
+    return my - mx;
+  });
+  const cell = (v,fn,dot) => v==null ? '<span style="color:var(--border)">·</span>' : `${dot||''}${fn(v)}`;
+  const cultRows = cultInfo.map(o => {
+    const mbBetter = (o.mbA!=null && o.mbB!=null) ? (o.mbA>o.mbB?cA:o.mbB>o.mbA?cB:'') : '';
+    return `<tr>
+      <td><span class="dot" style="background:${cultColor(o.c)}"></span><strong>${o.c}</strong></td>
+      <td style="text-align:right">${o.supA>0?fmtPct(o.shA):'·'}</td>
+      <td style="text-align:right">${cell(o.rdA,v=>fmt(v,1)+'t')}</td>
+      <td style="text-align:right; ${mbBetter===cA?'font-weight:700;color:'+cA:''}">${cell(o.mbA,fmtUSD)}</td>
+      <td style="text-align:right; border-left:1px solid var(--border)">${o.supB>0?fmtPct(o.shB):'·'}</td>
+      <td style="text-align:right">${cell(o.rdB,v=>fmt(v,1)+'t')}</td>
+      <td style="text-align:right; ${mbBetter===cB?'font-weight:700;color:'+cB:''}">${cell(o.mbB,fmtUSD)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('an-tabla-cult').innerHTML = `
+    <table class="cmp-table" style="min-width:640px">
+      <thead>
+        <tr>
+          <th rowspan="2" style="vertical-align:bottom">Cultivo</th>
+          <th colspan="3" style="text-align:center; color:${cA}; border-left:1px solid var(--border)">${A}</th>
+          <th colspan="3" style="text-align:center; color:${cB}; border-left:1px solid var(--border)">${B}</th>
+        </tr>
+        <tr>
+          <th style="text-align:right; font-size:10px; border-left:1px solid var(--border)">% Sup</th>
+          <th style="text-align:right; font-size:10px">Rinde</th>
+          <th style="text-align:right; font-size:10px">MB/ha</th>
+          <th style="text-align:right; font-size:10px; border-left:1px solid var(--border)">% Sup</th>
+          <th style="text-align:right; font-size:10px">Rinde</th>
+          <th style="text-align:right; font-size:10px">MB/ha</th>
+        </tr>
+      </thead>
+      <tbody>${cultRows}</tbody>
+    </table>`;
+}
+
+// ─── TAB: SEMÁFORO CREA ───────────────────────────────────────────────────────
+// Compara el mes seleccionado vs Julio 2026 (presupuesto original) con código de colores.
+function renderSemaforo() {
+  const campana = document.getElementById('f-campana').value || '2026-2027';
+  const startYear = parseInt(campana.split('-')[0]);
+  const julio = `01/07/${startYear}`;
+  const meses = [...new Set(allData.filter(r=>r.campana===campana && r.mesStr).map(r=>r.mesStr))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+  const empresas = [...new Set(allData.filter(r=>r.campana===campana).map(r=>r.empresa))].sort();
+  const sub = document.getElementById('sem-subtitle');
+
+  if (!meses.length) {
+    sub.innerHTML = `<span style="color:var(--yellow)">Sin datos para la campaña ${campana}.</span>`;
+    document.getElementById('sem-tabla').innerHTML = ''; return;
+  }
+
+  // Poblar selectores de mes (base por defecto = Julio; actual = último). Se repobla al cambiar campaña.
+  const selA = document.getElementById('sem-actual'), selB = document.getElementById('sem-base');
+  const fillKey = campana + '|' + meses.join(',');
+  if (selA.dataset.filled !== fillKey) {
+    const opts = meses.map(m=>`<option value="${m}">${m}</option>`).join('');
+    selA.innerHTML = opts; selB.innerHTML = opts;
+    selA.value = meses[meses.length-1];
+    selB.value = meses.includes(julio) ? julio : meses[0];
+    selA.dataset.filled = fillKey; selB.dataset.filled = fillKey;
+  }
+  const actualMes = selA.value, baseMes = selB.value;
+  sub.innerHTML = `Comparación: <strong style="color:var(--text)">${actualMes}</strong> (actual) vs <strong style="color:var(--text)">${baseMes}</strong> (base) — campaña ${campana}`;
+
+  // ── Helpers ──
+  const rowsAt = (filterFn, mes) => allData.filter(r => r.campana===campana && r.mesStr===mes && filterFn(r));
+
+  // Indicadores de un grupo de filas. perCultivo=true usa superficie propia para MN (los 2da no dan 0)
+  const indic = (rows, perCultivo) => {
+    if (!rows.length) return null;
+    const tons = rows.reduce((s,r)=>s+(r.rendimiento||0)*(r.superficie||0), 0);
+    const gdTot= rows.reduce((s,r)=>s+(r.gd||0)*(r.superficie||0), 0);
+    const ctTot= rows.reduce((s,r)=>s+((r.gd||0)+(r.alq||0)+(r.gerenc||0)+(r.estruc||0)+(r.adm||0))*(r.superficie||0), 0);
+    return {
+      rent:     calcRentabilidad(rows),
+      mn:       perCultivo ? wAvg(rows,'mn') : calcMNProm(rows),
+      costoDir: tons ? gdTot/tons : null,
+      costoTot: tons ? ctTot/tons : null,
+    };
+  };
+
+  // Variación de rinde ponderada por superficie, cultivo por cultivo (aísla el efecto mix)
+  const rindeVarPonderado = (rowsA, rowsB) => {
+    const cults = [...new Set([...rowsA.map(r=>r.cultivo), ...rowsB.map(r=>r.cultivo)])];
+    let num=0, den=0;
+    cults.forEach(c => {
+      const ra = rowsA.filter(r=>r.cultivo===c), rb = rowsB.filter(r=>r.cultivo===c);
+      if (!ra.length || !rb.length) return;
+      const rA = wAvg(ra,'rendimiento'), rB = wAvg(rb,'rendimiento');
+      if (!rB) return;
+      num += ((rA-rB)/rB*100) * ra.reduce((s,r)=>s+r.superficie,0);
+      den += ra.reduce((s,r)=>s+r.superficie,0);
+    });
+    return den ? num/den : null;
+  };
+
+  const varPct = (a, b) => (b==null || a==null || Math.abs(b) < 0.01) ? null : (a-b)/Math.abs(b)*100;
+
+  const sem = (v, isCosto) => {
+    if (v==null) return { bg:'transparent', txt:'#8b949e', label:'–' };
+    const x = isCosto ? -v : v;
+    let bg;
+    if (x > 5)         bg = '#1f6feb';
+    else if (x >= -5)  bg = '#3fb950';
+    else if (x >= -10) bg = '#e3b341';
+    else               bg = '#f85149';
+    return { bg, txt:contrastText(bg), label:(v>=0?'+':'')+fmt(v,0)+'%' };
+  };
+
+  // Celda de semáforo comparando dos valores
+  const semCell = (a, b, isCosto, fmtV) => {
+    const v = (a!=null&&b!=null) ? varPct(a,b) : null;
+    const s = sem(v, isCosto);
+    const tip = (a!=null&&b!=null)
+      ? `Actual: ${fmtV(a)} · Base: ${fmtV(b)} · Var: ${v!=null?(v>=0?'+':'')+fmt(v,1)+'%':'—'}`
+      : 'Sin datos';
+    return `<td title="${tip}" style="background:${s.bg}; color:${s.txt}; text-align:center; font-weight:700; font-size:11px; padding:8px 6px; border:1px solid var(--bg);">${s.label}</td>`;
+  };
+  // Celda de Producción (variación ya calculada)
+  const prodCell = (v, perCultivo) => {
+    const s = sem(v, false);
+    const tip = v!=null
+      ? `Variación de rinde ${perCultivo?'':'ponderada por superficie '}: ${(v>=0?'+':'')+fmt(v,1)}%`
+      : 'Sin datos comparables';
+    return `<td title="${tip}" style="background:${s.bg}; color:${s.txt}; text-align:center; font-weight:700; font-size:11px; padding:8px 6px; border:1px solid var(--bg);">${s.label}</td>`;
+  };
+  const numCell = (val, fn=v=>fmtUSD(v), extra='') =>
+    `<td style="text-align:center; padding:7px 6px; border:1px solid var(--border); ${val==null?'color:var(--border)':''} ${extra}">${val!=null?fn(val):'·'}</td>`;
+
+  // Valores de indiferencia (del mes actual, no comparativos)
+  // Precio Indif = Costo Total ÷ Rinde (U$S/tn) · Rinde Indif = Costo Total/ha ÷ Precio Prod (t/ha)
+  const indif = (rows) => {
+    if (!rows.length) return { rindeIndif:null, precioIndif:null };
+    const tons  = rows.reduce((s,r)=>s+(r.rendimiento||0)*(r.superficie||0), 0);
+    const ctTot = rows.reduce((s,r)=>s+((r.gd||0)+(r.alq||0)+(r.gerenc||0)+(r.estruc||0)+(r.adm||0))*(r.superficie||0), 0);
+    const precioIndif = tons ? ctTot/tons : null;   // U$S/tn
+    let numR=0, denR=0;
+    rows.forEach(r => {
+      const ctHa = (r.gd||0)+(r.alq||0)+(r.gerenc||0)+(r.estruc||0)+(r.adm||0);
+      if (r.pProd>0) { numR += (ctHa/r.pProd)*(r.superficie||0); denR += (r.superficie||0); }
+    });
+    const rindeIndif = denR ? numR/denR : null;      // t/ha
+    return { rindeIndif, precioIndif };
+  };
+
+  // Construye las 5 celdas de semáforo + numéricas de un grupo
+  const buildCells = (rowsA, rowsB, perCultivo) => {
+    const a = indic(rowsA, perCultivo), b = indic(rowsB, perCultivo);
+    const pv = perCultivo
+      ? (() => {
+          if (!rowsA.length || !rowsB.length) return null;   // cultivo no está en ambos meses → sin comparación
+          const rA=wAvg(rowsA,'rendimiento'), rB=wAvg(rowsB,'rendimiento');
+          return rB ? (rA-rB)/rB*100 : null;
+        })()
+      : rindeVarPonderado(rowsA, rowsB);
+    const ind = indif(rowsA);   // valores de indiferencia del mes actual
+    return {
+      rent:  semCell(a?.rent, b?.rent, false, v=>fmt(v,1)+'%'),
+      mn:    semCell(a?.mn, b?.mn, false, v=>fmtUSD(v)),
+      prod:  prodCell(pv, perCultivo),
+      cdir:  semCell(a?.costoDir, b?.costoDir, true, v=>fmtUSD(v)),
+      ctot:  semCell(a?.costoTot, b?.costoTot, true, v=>fmtUSD(v)),
+      mnA:   a?.mn, mnB: b?.mn,
+      rindeIndif: ind.rindeIndif, precioIndif: ind.precioIndif,
+    };
+  };
+
+  // ── Armar filas ──
+  const tableRows = [];
+  empresas.forEach(e => {
+    const key = e.replace(/[^a-zA-Z0-9]/g,'_');
+    const rowsA = rowsAt(r=>r.empresa===e, actualMes);
+    const rowsB = rowsAt(r=>r.empresa===e, baseMes);
+    const c = buildCells(rowsA, rowsB, false);
+    // Fila empresa (clickeable)
+    tableRows.push(`<tr style="cursor:pointer" onclick="toggleSemEmpresa('${key}')" title="Click para ver por cultivo">
+      <td style="text-align:left; padding:8px 10px; font-weight:700; position:sticky; left:0; background:var(--s2); z-index:1; white-space:nowrap;">
+        <span class="dot" style="background:${col(e)}"></span>${e}
+        <span id="semarrow-${key}" style="font-size:10px;color:var(--muted);margin-left:4px">▶</span></td>
+      ${c.rent}${c.mn}${c.prod}${c.cdir}${c.ctot}
+      ${numCell(c.mnA)}${numCell(c.mnB)}
+      ${numCell(c.rindeIndif, v=>fmt(v,1)+' t')}${numCell(c.precioIndif, v=>fmtUSD(v))}
+    </tr>`);
+    // Sub-filas por cultivo
+    const cults = [...new Set([...rowsA.map(r=>r.cultivo), ...rowsB.map(r=>r.cultivo)])].sort();
+    cults.forEach(cu => {
+      const rA = rowsA.filter(r=>r.cultivo===cu), rB = rowsB.filter(r=>r.cultivo===cu);
+      const cc = buildCells(rA, rB, true);
+      tableRows.push(`<tr class="semcult-${key}" style="display:none; background:var(--s3)">
+        <td style="text-align:left; padding:6px 10px 6px 28px; color:var(--muted); font-size:11px; position:sticky; left:0; background:var(--s3); z-index:1; white-space:nowrap;">↳ ${cu}</td>
+        ${cc.rent}${cc.mn}${cc.prod}${cc.cdir}${cc.ctot}
+        ${numCell(cc.mnA, v=>fmtUSD(v), 'font-size:11px;color:var(--muted)')}${numCell(cc.mnB, v=>fmtUSD(v), 'font-size:11px;color:var(--muted)')}
+        ${numCell(cc.rindeIndif, v=>fmt(v,1)+' t', 'font-size:11px;color:var(--yellow)')}${numCell(cc.precioIndif, v=>fmtUSD(v), 'font-size:11px;color:var(--yellow)')}
+      </tr>`);
+    });
+  });
+
+  const th = (t,extra='') => `<th style="padding:8px 6px; background:var(--s3); ${extra}">${t}</th>`;
+  const head = `<th style="text-align:left; padding:8px 10px; position:sticky; left:0; background:var(--s3); z-index:2;">Empresa / Cultivo</th>` +
+    th('Rentab.')+th('M.Neto')+th('Producción')+th('Costo Dir./Tn')+th('Costo Total/Tn')+
+    th('MN actual','border-left:2px solid var(--bg)')+th(`MN base`)+
+    th('Rinde Indif.','border-left:2px solid var(--bg)')+th('Precio Indif.');
+
+  document.getElementById('sem-tabla').innerHTML = `
+    <table style="border-collapse:collapse; width:100%; min-width:1000px; font-size:12px;">
+      <thead><tr>${head}</tr></thead>
+      <tbody>${tableRows.join('')}</tbody>
+    </table>`;
+}
+
+window.toggleSemEmpresa = function(key) {
+  const rows = document.querySelectorAll(`.semcult-${key}`);
+  const arrow = document.getElementById(`semarrow-${key}`);
+  const hidden = rows[0]?.style.display === 'none';
+  rows.forEach(r => r.style.display = hidden ? 'table-row' : 'none');
+  if (arrow) arrow.textContent = hidden ? '▼' : '▶';
+};
+
+// ─── TAB: TABLA ───────────────────────────────────────────────────────────────
+function renderTabla() {
+  const data = filteredData;
+  document.getElementById('tabla-count').textContent = `${data.length} registros`;
+
+  const cols = [
+    {k:'empresa',   l:'Empresa',          r:false},
+    {k:'cultivo',   l:'Cultivo',          r:false},
+    {k:'campana',   l:'Campaña',          r:false},
+    {k:'mesStr',    l:'Mes',              r:false},
+    {k:'superficie',l:'Sup. (ha)',        r:true,  f:v=>fmt(v,0)},
+    {k:'rendimiento',l:'Rdto',            r:true,  f:v=>fmt(v,1)},
+    {k:'pctVenta',  l:'% Vta',           r:true,  f:fmtPct, c:v=>v>=50?'pos':v>=25?'warn':'neg'},
+    {k:'pProd',     l:'P. Prod',           r:true,  f:fmtUSD},
+    {k:'pVenta',    l:'P. Venta',         r:true,  f:fmtUSD},
+    {k:'pDisp',     l:'P. Disp',          r:true,  f:fmtUSD},
+    {k:'avgPDispAcum',l:'P. Ref. Acum.',  r:true,  f:v=>fmtUSD(v), title:'Promedio acumulado de precio disponible en la campaña'},
+    {k:'pctCobertura',l:'% Cob',          r:true,  f:fmtPct},
+    {k:'ingresos',  l:'IN ($/ha)',         r:true,  f:fmtUSD},
+    {k:'gd',        l:'GD',               r:true,  f:fmtUSD},
+    {k:'alq',       l:'ALQ',              r:true,  f:fmtUSD},
+    {k:'mb',        l:'MB ($/ha)',         r:true,  f:fmtUSD, c:v=>v>=0?'pos':'neg'},
+    {k:'mn',        l:'MN ($/ha)',         r:true,  f:fmtUSD, c:v=>v>=0?'pos':'neg'},
+    {k:'rcCalc',l:'Res. Com.', r:true,  f:fmtUSD, c:v=>v>=0?'pos':'neg'},
+  ];
+
+  document.getElementById('tabla-main').innerHTML = `
+    <table>
+      <thead><tr>${cols.map(c=>`<th style="text-align:${c.r?'right':'left'}">${c.l}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${data.map(row=>`<tr>${cols.map(c=>{
+          const v=row[c.k];
+          const disp=c.f?c.f(v):(v??'–');
+          const cls=c.c?c.c(v):'';
+          return `<td class="${cls}" style="text-align:${c.r?'right':'left'}">${
+            c.k==='empresa'?`<span class="dot" style="background:${col(v)}"></span>${v}`:disp
+          }</td>`;
+        }).join('')}</tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ─── EXPORT ───────────────────────────────────────────────────────────────────
+window.exportCSV = function() {
+  const cols = ['empresa','cultivo','campana','mesStr','superficie','rendimiento',
+    'pctVenta','pVenta','pDisp','pctCobertura','ingresos','gd','alq','mb','mn','rcCalc'];
+  const hdrs = ['Empresa','Cultivo','Campaña','Mes','Superficie','Rendimiento',
+    '% Venta','P. Venta','P. Disp','% Cobertura','IN','GD','ALQ','MB','MN','Res. Comercial'];
+  const csv = [hdrs, ...filteredData.map(r=>cols.map(c=>r[c]))].map(r=>r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,﻿'+encodeURIComponent(csv);
+  a.download = 'crea_gestion.csv';
+  a.click();
+};
+
+// ─── TAB SWITCHING ────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+    if (tab.dataset.tab==='evolucion') renderEvolucion();
+    if (tab.dataset.tab==='evol-resultado') renderEvolResultado();
+    if (tab.dataset.tab==='analisis') renderAnalisis();
+    if (tab.dataset.tab==='semaforo') renderSemaforo();
+  });
+});
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+// loadData() se dispara desde showApp() después del login (ver arriba).
+</script>
+</body>
+</html>
