@@ -2277,6 +2277,7 @@ function renderEvolResultado() {
 
   const lineOpts = (yFmt, tooltipFmt) => ({
     responsive:true, maintainAspectRatio:true, animation:{duration:400},
+    layout:{ padding:{ top:20 } },
     plugins:{
       legend:{labels:{color:'#8b949e',boxWidth:10,font:{size:11}}},
       tooltip:{mode:'index',intersect:false, callbacks:{label:tooltipFmt}}
@@ -2287,10 +2288,35 @@ function renderEvolResultado() {
     }
   });
 
+  // Plugin: etiqueta con el valor en cada punto de la línea GRUPO
+  const pointLabels = (fmtFn) => ({
+    id: 'pointLabels',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      chart.data.datasets.forEach((ds, di) => {
+        if (ds.label !== 'GRUPO') return;
+        const meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        ctx.save();
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillStyle = '#e6edf3';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        meta.data.forEach((pt, i) => {
+          const v = ds.data[i];
+          if (v == null) return;
+          ctx.fillText(fmtFn(v), pt.x, pt.y - 7);
+        });
+        ctx.restore();
+      });
+    }
+  });
+
   // Rentabilidad %
   destroyChart('evol-rent');
   charts['evol-rent'] = new Chart(document.getElementById('chart-evol-rent'), {
     type:'line',
+    plugins:[pointLabels(v=>fmt(v,1)+'%')],
     data:{ labels:meses, datasets:buildDatasets(rs=>calcRentabilidad(rs)) },
     options:lineOpts(v=>fmtPct(v), ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmtPct(ctx.raw)}` : null)
   });
@@ -2299,6 +2325,7 @@ function renderEvolResultado() {
   destroyChart('evol-mb');
   charts['evol-mb'] = new Chart(document.getElementById('chart-evol-mb'), {
     type:'line',
+    plugins:[pointLabels(v=>fmt(v,0))],
     data:{ labels:meses, datasets:buildDatasets(rs=>calcMBProm(rs)) },
     options:lineOpts(v=>fmtUSD(v), ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmtUSD(ctx.raw)}` : null)
   });
@@ -2307,6 +2334,7 @@ function renderEvolResultado() {
   destroyChart('evol-mn');
   charts['evol-mn'] = new Chart(document.getElementById('chart-evol-mn'), {
     type:'line',
+    plugins:[pointLabels(v=>fmt(v,0))],
     data:{ labels:meses, datasets:buildDatasets(rs=>calcMNProm(rs)) },
     options:lineOpts(v=>fmtUSD(v), ctx=> ctx.raw!=null ? `${ctx.dataset.label}: ${fmtUSD(ctx.raw)}` : null)
   });
