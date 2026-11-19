@@ -497,8 +497,8 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
       Margen Neto = MN por hectárea física · Producción = variación de rinde de cada cultivo (vs su propia base) ponderada por superficie, para aislar el cambio real de rinde del mix de cultivos ·
       Costo Directo/Tn = G.Directo ÷ Rendimiento · Costo Total/Tn = (G.Directo + Alquiler + Gerencia + Estructura + Adm) ÷ Rendimiento (un aumento del costo es desfavorable).
       Por defecto compara contra Julio 2026 (presupuesto original), pero podés elegir cualquier par de meses.
-      <br><strong>Indiferencia (valores del mes actual, no comparativos):</strong> Precio Indif. = Costo Total ÷ Rinde (precio que necesitás para no perder) ·
-      Rinde Indif. = Costo Total ÷ Precio Producción (rinde que necesitás para no perder).
+      <br><strong>Indiferencia (valores del mes actual, no comparativos):</strong> Precio Indif. = Costo Total ÷ Rinde (precio neto que necesitás para no perder) ·
+      Rinde Indif. = Costo Total ÷ precio neto realizado (IN ÷ Tn) = rinde al que el ingreso cubre el costo total (si el MN es negativo, queda por encima del rinde real).
     </div>
   </div>
 
@@ -2758,15 +2758,20 @@ function renderSemaforo() {
   // Precio Indif = Costo Total ÷ Rinde (U$S/tn) · Rinde Indif = Costo Total/ha ÷ Precio Prod (t/ha)
   const indif = (rows) => {
     if (!rows.length) return { rindeIndif:null, precioIndif:null };
-    const tons  = rows.reduce((s,r)=>s+(r.rendimiento||0)*(r.superficie||0), 0);
-    const ctTot = rows.reduce((s,r)=>s+((r.gd||0)+(r.alq||0)+(r.gerenc||0)+(r.estruc||0)+(r.adm||0))*(r.superficie||0), 0);
-    const precioIndif = tons ? ctTot/tons : null;   // U$S/tn
-    let numR=0, denR=0;
+    let tons=0, inTot=0, ctTot=0, sup=0;
     rows.forEach(r => {
+      const s = r.superficie||0;
       const ctHa = (r.gd||0)+(r.alq||0)+(r.gerenc||0)+(r.estruc||0)+(r.adm||0);
-      if (r.pProd>0) { numR += (ctHa/r.pProd)*(r.superficie||0); denR += (r.superficie||0); }
+      tons  += (r.rendimiento||0)*s;
+      inTot += (r.ingresos||0)*s;   // ingreso NETO (ya descontado comercial/flete)
+      ctTot += ctHa*s;
+      sup   += s;
     });
-    const rindeIndif = denR ? numR/denR : null;      // t/ha
+    const precioIndif = tons ? ctTot/tons : null;            // U$S/tn (precio neto para no perder)
+    // Rinde Indif: usa el precio NETO realizado (IN/tn), no el Precio Prod bruto.
+    // rinde para que ingreso = costo total → ctTot ÷ (inTot/tons) toneladas, ÷ sup = t/ha
+    const netPrice = tons ? inTot/tons : null;               // U$S/tn realizado
+    const rindeIndif = (netPrice && sup) ? (ctTot/netPrice)/sup : null;  // t/ha
     return { rindeIndif, precioIndif };
   };
 
