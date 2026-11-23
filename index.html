@@ -216,6 +216,7 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
   <div class="tab" data-tab="posicion">📊 Posición Comercial</div>
   <div class="tab" data-tab="resultado">💰 Resultado &amp; MB</div>
   <div class="tab" data-tab="evol-resultado">📉 Evolución Resultado</div>
+  <div class="tab" data-tab="negocio">🧭 Análisis de Negocio</div>
   <div class="tab" data-tab="escenarios">🎯 Escenarios de Precio</div>
   <div class="tab" data-tab="evolucion">📈 Evolución</div>
   <div class="tab" data-tab="analisis">🔍 Análisis</div>
@@ -371,6 +372,46 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
         <div class="chart-title">Evolución del Margen Neto (U$S/ha)</div>
         <canvas id="chart-evol-mn" height="80"></canvas>
       </div>
+    </div>
+  </div>
+
+  <!-- TAB: Análisis de Negocio -->
+  <div class="tab-panel" id="tab-negocio">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:8px;">
+      <div>
+        <div style="font-size:18px; font-weight:700; color:var(--text);">🧭 Análisis de Negocio — ¿qué movió el resultado?</div>
+        <div id="neg-subtitle" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
+      </div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+      <div class="filter-group"><label>Nivel</label>
+        <select id="neg-scope" onchange="renderNegocio()"></select>
+      </div>
+      <div class="filter-group"><label>Mes</label>
+        <select id="neg-actual" onchange="renderNegocio()"></select>
+      </div>
+      <div class="filter-group"><label>vs mes base</label>
+        <select id="neg-base" onchange="renderNegocio()"></select>
+      </div>
+    </div>
+    <div id="neg-cards" class="cards" style="margin-bottom:12px;"></div>
+    <div class="chart-box chart-full">
+      <div class="chart-title">Puente del Margen Neto (U$S/ha) — del mes base al mes actual</div>
+      <div class="chart-sub">Cada barra es cuánto sumó o restó cada driver al cambio de MN por hectárea física</div>
+      <canvas id="chart-neg-bridge" height="110"></canvas>
+    </div>
+    <div class="chart-box chart-full" style="margin-top:14px;">
+      <div class="chart-title">📝 Lectura del cambio</div>
+      <div id="neg-narrativa" style="font-size:13px; color:var(--text); line-height:1.9; margin-top:6px;"></div>
+    </div>
+    <div class="chart-box" style="overflow-x:auto; margin-top:14px;">
+      <div class="chart-title">Detalle de drivers</div>
+      <div id="neg-tabla"></div>
+    </div>
+    <div style="font-size:11px; color:var(--muted); margin-top:10px; line-height:1.7;">
+      <strong>Cómo se lee:</strong> el puente parte del MN/ha del mes base y suma/resta cada driver hasta el MN/ha del mes actual (los drivers suman exacto el cambio total).
+      El <strong>Ingreso</strong> se abre en <strong>Precio</strong> (precio neto U$S/tn, a rindes y superficie base), <strong>Rinde</strong> (kg/ha, a precios base) y <strong>Plan de siembra / Mix</strong> (cambio de superficie y composición de cultivos, incluye cultivos nuevos o que salieron).
+      Precio y Rinde se calculan sobre los cultivos presentes en ambos meses; todo lo demás cae en Plan de siembra. Costos en contra (más gasto = resta MN).
     </div>
   </div>
 
@@ -776,8 +817,8 @@ async function loadData() {
         hasSin2da:  parseNum(row['Has sin 2da']),
         dato:       (row['Dato'] || '').trim(),
       };
-    }).filter(r => r.empresa && r.cultivo && r.campana
-               && r.cultivo !== 'Dado en Alquiler');  // tierra arrendada a terceros: sin producción propia
+    }).filter(r => r.empresa && r.cultivo && r.campana);
+    // "Dado en Alquiler" (tierra arrendada a terceros) se incluye como un cultivo más (pedido del usuario).
 
     // ── Tablas de referencia: Flete y Gastos Comerciales ────────────────────
     const FLETE_CAMPANA = {
@@ -1013,6 +1054,7 @@ function renderAll() {
   const activeTab = document.querySelector('.tab.active')?.dataset.tab;
   if (activeTab === 'evolucion') renderEvolucion();
   if (activeTab === 'evol-resultado') renderEvolResultado();
+  if (activeTab === 'negocio') renderNegocio();
   if (activeTab === 'analisis') renderAnalisis();
   if (activeTab === 'semaforo') renderSemaforo();
 }
@@ -2363,6 +2405,204 @@ function swapAnalisis() {
   renderAnalisis();
 }
 
+function renderNegocio() {
+  const campana = document.getElementById('f-campana').value || '2026-2027';
+  const meses = [...new Set(allData.filter(r=>r.campana===campana && r.mesStr).map(r=>r.mesStr))]
+    .sort((a,b)=>{ const da=parseDate(a),db=parseDate(b); return da&&db?da-db:0; });
+  const empresas = [...new Set(allData.filter(r=>r.campana===campana).map(r=>r.empresa))].sort();
+  const sub   = document.getElementById('neg-subtitle');
+  const scopeSel = document.getElementById('neg-scope');
+  const selA = document.getElementById('neg-actual'), selB = document.getElementById('neg-base');
+  const elCards = document.getElementById('neg-cards'),
+        elNarr  = document.getElementById('neg-narrativa'),
+        elTabla = document.getElementById('neg-tabla');
+  const clear = (msg) => { sub.innerHTML = msg||''; elCards.innerHTML=''; elNarr.innerHTML=''; elTabla.innerHTML=''; destroyChart('neg-bridge'); };
+
+  if (meses.length < 2) { clear(`<span style="color:var(--yellow)">Hacen falta al menos 2 meses en la campaña ${campana} para comparar.</span>`); return; }
+
+  // Poblar selectores (nivel + meses). Se repuebla al cambiar de campaña.
+  const fillKey = campana + '|' + meses.join(',') + '|' + empresas.join(',');
+  if (scopeSel.dataset.filled !== fillKey) {
+    scopeSel.innerHTML = `<option value="__grupo__">Grupo (todas)</option>` +
+      empresas.map(e=>`<option value="${e}">${e}</option>`).join('');
+    const opts = meses.map(m=>`<option value="${m}">${m}</option>`).join('');
+    selA.innerHTML = opts; selB.innerHTML = opts;
+    selA.value = meses[meses.length-1];
+    selB.value = meses[meses.length-2];
+    scopeSel.dataset.filled = fillKey; selA.dataset.filled = fillKey; selB.dataset.filled = fillKey;
+  }
+  const scope = scopeSel.value || '__grupo__';
+  const actualMes = selA.value, baseMes = selB.value;
+  const scopeLabel = scope==='__grupo__' ? 'Grupo (todas las empresas)' : scope;
+  sub.innerHTML = `${scopeLabel} · <strong style="color:var(--text)">${actualMes}</strong> vs <strong style="color:var(--text)">${baseMes}</strong> — campaña ${campana}`;
+
+  const rowsAt = (mes) => allData.filter(r => r.campana===campana && r.mesStr===mes
+     && (scope==='__grupo__' || r.empresa===scope));
+  const rowsA = rowsAt(actualMes), rowsB = rowsAt(baseMes);
+  if (!rowsA.length || !rowsB.length) { clear(sub.innerHTML + ` <span style="color:var(--yellow)">— sin datos en alguno de los meses para este nivel.</span>`); return; }
+
+  // Componentes por hectárea física (Has sin 2da)
+  const comp = (rows) => {
+    const H = sumHasSin2da(rows) || rows.reduce((s,r)=>s+(r.superficie||0),0);
+    const sum = k => rows.reduce((s,r)=>s+(r[k]||0)*(r.superficie||0),0);
+    const inc=sum('ingresos'), gd=sum('gd'), alq=sum('alq'),
+          ovh=sum('gerenc')+sum('estruc')+sum('adm'), mnTot=sum('mn');
+    return { H, inHa:inc/H, gdHa:gd/H, alqHa:alq/H, ovhHa:ovh/H, mnHa:mnTot/H };
+  };
+  const A = comp(rowsA), B = comp(rowsB);
+  const rentA = calcRentabilidad(rowsA), rentB = calcRentabilidad(rowsB);
+
+  // Descomposición del ingreso en Precio / Rinde / Mix (sobre cultivos comunes; el resto cae en Mix)
+  const cropAgg = (rows) => { const m={}; rows.forEach(r=>{ const c=r.cultivo;
+      (m[c]=m[c]||{sup:0,ton:0,inc:0}); m[c].sup+=(r.superficie||0);
+      m[c].ton+=(r.rendimiento||0)*(r.superficie||0); m[c].inc+=(r.ingresos||0)*(r.superficie||0); }); return m; };
+  const DADO='Dado en Alquiler';   // campo cedido a terceros: su ingreso es renta, no precio de grano
+  const cA=cropAgg(rowsA), cB=cropAgg(rowsB);
+  let priceEff=0, rindeEff=0; const cropDetail=[];
+  Object.keys(cB).forEach(c=>{ if(c===DADO || !cA[c]) return;
+    const b=cB[c], a=cA[c];
+    const pB=b.ton?b.inc/b.ton:0, pA=a.ton?a.inc/a.ton:0;
+    const rB=b.sup?b.ton/b.sup:0, rA=a.sup?a.ton/a.sup:0;
+    const pe=(pA-pB)*b.ton, re=(rA-rB)*b.sup*pB;
+    priceEff+=pe; rindeEff+=re;
+    cropDetail.push({c, pe, re, pB, pA, rB, rA, supB:b.sup, supA:a.sup});
+  });
+  const HB = B.H||1;
+  const priceHa = priceEff/HB, rindeHa = rindeEff/HB;
+  const dINha = A.inHa - B.inHa;
+  let rentaHa = (((cA[DADO]&&cA[DADO].inc)||0) - ((cB[DADO]&&cB[DADO].inc)||0))/HB;
+  let mixHa = dINha - priceHa - rindeHa - rentaHa;
+
+  // Drivers (aporte al cambio de MN/ha). Costos: más gasto = resta.
+  const dMN = A.mnHa - B.mnHa;
+  const drivers = [
+    {k:'precio', lbl:'Precio', v:priceHa},
+    {k:'rinde',  lbl:'Rinde',  v:rindeHa},
+  ];
+  if (Math.abs(rentaHa) > 0.5) drivers.push({k:'renta', lbl:'Renta campo cedido', v:rentaHa});
+  else { mixHa += rentaHa; rentaHa = 0; }
+  drivers.push({k:'mix', lbl:'Plan de siembra / Mix', v:mixHa});
+  drivers.push({k:'gd',  lbl:'Gastos Directos', v:-(A.gdHa-B.gdHa)});
+  drivers.push({k:'alq', lbl:'Alquiler',        v:-(A.alqHa-B.alqHa)});
+  drivers.push({k:'ovh', lbl:'Estructura',      v:-(A.ovhHa-B.ovhHa)});
+  const otros = dMN - drivers.reduce((s,d)=>s+d.v,0);   // intermedias, intereses, etc.
+  if (Math.abs(otros) > 1) drivers.push({k:'otros', lbl:'Otros (interm./int.)', v:otros});
+
+  // ── Cards ──
+  const dRent = rentA - rentB;
+  elCards.innerHTML = `
+    <div class="card"><div class="card-label">MN base — ${baseMes}</div>
+      <div class="card-value ${B.mnHa>=0?'green':'red'}">${fmtUSD(B.mnHa)}/ha</div>
+      <div class="card-sub">Rentabilidad ${fmtPct(rentB)}</div></div>
+    <div class="card"><div class="card-label">MN actual — ${actualMes}</div>
+      <div class="card-value ${A.mnHa>=0?'green':'red'}">${fmtUSD(A.mnHa)}/ha</div>
+      <div class="card-sub">Rentabilidad ${fmtPct(rentA)}</div></div>
+    <div class="card"><div class="card-label">Cambio de MN</div>
+      <div class="card-value ${dMN>=0?'green':'red'}" style="font-size:30px">${dMN>=0?'+':''}${fmtUSD(dMN)}/ha</div>
+      <div class="card-sub">Rentabilidad ${dRent>=0?'+':''}${fmt(dRent,1)} pp</div></div>`;
+
+  // ── Puente (waterfall) ──
+  const labels=['MN base'], barData=[[0,B.mnHa]], barColors=['#58a6ff'];
+  let running = B.mnHa;
+  drivers.forEach(d=>{ const start=running, end=running+d.v;
+    labels.push(d.lbl); barData.push([Math.min(start,end),Math.max(start,end)]);
+    barColors.push(d.v>=0?'#3fb950':'#f85149'); running=end; });
+  labels.push('MN actual'); barData.push([0,A.mnHa]); barColors.push('#58a6ff');
+  const driverVals = [null, ...drivers.map(d=>d.v), null];
+  const anchorVals = [B.mnHa, ...drivers.map(()=>null), A.mnHa];
+
+  destroyChart('neg-bridge');
+  const ctx = document.getElementById('chart-neg-bridge');
+  charts['neg-bridge'] = new Chart(ctx, {
+    type:'bar',
+    data:{ labels, datasets:[{ data:barData, backgroundColor:barColors, borderColor:barColors, borderWidth:1, borderSkipped:false }] },
+    options:{ responsive:true, maintainAspectRatio:true,
+      layout:{ padding:{ top:24 } },
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:(c)=>{ const i=c.dataIndex;
+          if(driverVals[i]!=null) return (driverVals[i]>=0?'+':'')+fmtUSD(driverVals[i])+'/ha';
+          return fmtUSD(anchorVals[i])+'/ha'; } } } },
+      scales:{ x:{ grid:{display:false}, ticks:{ color:'#8b949e', font:{size:10}, maxRotation:35, minRotation:0 } },
+               y:{ grid:{color:'rgba(139,148,158,0.12)'}, ticks:{ color:'#8b949e', callback:v=>fmt(v,0) } } } },
+    plugins:[{ id:'negLabels', afterDatasetsDraw(chart){
+      const {ctx}=chart; const meta=chart.getDatasetMeta(0);
+      ctx.save(); ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
+      meta.data.forEach((bar,i)=>{ const isDrv=driverVals[i]!=null;
+        const val=isDrv?driverVals[i]:anchorVals[i];
+        const txt=(isDrv&&val>=0?'+':'')+fmt(val,0);
+        ctx.fillStyle=isDrv?(val>=0?'#3fb950':'#f85149'):'#c9d1d9';
+        ctx.fillText(txt, bar.x, bar.y-6); });
+      ctx.restore(); } }]
+  });
+
+  // ── Narrativa ──
+  const topRinde = [...cropDetail].sort((x,y)=>Math.abs(y.re)-Math.abs(x.re))[0];
+  const nuevos = Object.keys(cA).filter(c=>c!==DADO && !cB[c] && cA[c].sup>0).sort((x,y)=>cA[y].sup-cA[x].sup);
+  const salieron = Object.keys(cB).filter(c=>c!==DADO && !cA[c] && cB[c].sup>0).sort((x,y)=>cB[y].sup-cB[x].sup);
+  const umbral = Math.max(2, Math.abs(dMN)*0.08);
+  const ordenados = [...drivers].sort((x,y)=>Math.abs(y.v)-Math.abs(x.v));
+  const frase = (d) => {
+    const signo = d.v>=0, abs=fmtUSD(Math.abs(d.v));
+    switch(d.k){
+      case 'precio': return signo
+        ? `<strong style="color:var(--green)">Mejoraron los precios</strong> (+${abs}/ha): subió el precio neto con rindes casi sin cambios.`
+        : `<strong style="color:var(--red)">Cayeron los precios</strong> (−${abs}/ha): bajó el precio neto realizado.`;
+      case 'rinde': { const cultTxt = topRinde ? ` (sobre todo en ${topRinde.c})` : '';
+        return signo
+        ? `<strong style="color:var(--green)">Mejores rindes</strong> (+${abs}/ha)${cultTxt}: más kg a precios similares.`
+        : `<strong style="color:var(--red)">Cayeron los rindes</strong> (−${abs}/ha)${cultTxt}.`; }
+      case 'mix': { let det='';
+        if (signo && nuevos.length) det = `: sumó ${nuevos[0]}${nuevos.length>1?' y otros':''}`;
+        else if (!signo && salieron.length) det = `: salió ${salieron[0]}${salieron.length>1?' y otros':''}`;
+        return `<strong>Cambio en el plan de siembra</strong> (${signo?'+':'−'}${abs}/ha)${det} — cambió la superficie y composición de cultivos.`; }
+      case 'renta': return `<strong>Renta del campo cedido</strong> (${signo?'+':'−'}${abs}/ha): cambió el ingreso por alquiler a terceros (Dado en Alquiler).`;
+      case 'gd':  return `Los <strong>gastos directos</strong> ${signo?'bajaron':'subieron'} (${signo?'+':'−'}${abs}/ha de efecto).`;
+      case 'alq': return `El <strong>alquiler</strong> ${signo?'bajó':'subió'} (${signo?'+':'−'}${abs}/ha de efecto).`;
+      case 'ovh': return `Los <strong>gastos de estructura</strong> ${signo?'bajaron':'subieron'} (${signo?'+':'−'}${abs}/ha de efecto).`;
+      default:    return `<strong>Otros</strong> (intermedias/intereses): ${signo?'+':'−'}${abs}/ha.`;
+    }
+  };
+  const bullets = [];
+  bullets.push(`El MN/ha de <strong>${scopeLabel}</strong> pasó de <strong>${fmtUSD(B.mnHa)}</strong> a <strong>${fmtUSD(A.mnHa)}</strong> (${dMN>=0?'+':''}${fmtUSD(dMN)}/ha), y la rentabilidad de <strong>${fmtPct(rentB)}</strong> a <strong>${fmtPct(rentA)}</strong>.`);
+  ordenados.filter(d=>Math.abs(d.v)>=umbral).slice(0,3).forEach(d=>bullets.push(frase(d)));
+  if (bullets.length===1 && ordenados[0]) bullets.push(frase(ordenados[0]));
+  elNarr.innerHTML = bullets.map(b=>`• ${b}`).join('<br>');
+
+  // ── Tabla de drivers ──
+  const pill = v => `<span style="color:${v>=0?'var(--green)':'var(--red)'};font-weight:600">${v>=0?'+':''}${fmtUSD(v)}</span>`;
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;">
+    <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">
+      <th style="padding:6px 8px">Driver</th><th style="padding:6px 8px;text-align:right">Aporte (U$S/ha)</th>
+      <th style="padding:6px 8px;text-align:right">% del cambio</th></tr>`;
+  drivers.forEach(d=>{ const pct = dMN? d.v/Math.abs(dMN)*100 : 0;
+    html += `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:6px 8px">${d.lbl}</td>
+      <td style="padding:6px 8px;text-align:right">${pill(d.v)}</td>
+      <td style="padding:6px 8px;text-align:right;color:var(--muted)">${dMN?(d.v>=0?'+':'')+fmt(pct,0)+'%':'–'}</td></tr>`; });
+  html += `<tr style="border-top:2px solid var(--border);font-weight:700">
+      <td style="padding:6px 8px">Cambio total de MN</td>
+      <td style="padding:6px 8px;text-align:right">${pill(dMN)}</td><td></td></tr></table>`;
+
+  // Detalle por cultivo común (precio y rinde)
+  if (cropDetail.length) {
+    const cd = [...cropDetail].sort((x,y)=>(Math.abs(y.pe)+Math.abs(y.re))-(Math.abs(x.pe)+Math.abs(x.re)));
+    html += `<div style="font-size:12px;color:var(--muted);margin:14px 0 4px">Cultivos presentes en ambos meses — precio y rinde</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">
+        <th style="padding:6px 8px">Cultivo</th>
+        <th style="padding:6px 8px;text-align:right">Precio (U$S/tn)</th>
+        <th style="padding:6px 8px;text-align:right">Rinde (t/ha)</th>
+        <th style="padding:6px 8px;text-align:right">Sup. (ha)</th></tr>`;
+    cd.forEach(c=>{ html += `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 8px">${c.c}</td>
+        <td style="padding:6px 8px;text-align:right">${fmt(c.pB,0)} → ${fmt(c.pA,0)}</td>
+        <td style="padding:6px 8px;text-align:right">${fmt(c.rB,1)} → ${fmt(c.rA,1)}</td>
+        <td style="padding:6px 8px;text-align:right">${fmt(c.supB,0)} → ${fmt(c.supA,0)}</td></tr>`; });
+    html += `</table>`;
+  }
+  elTabla.innerHTML = html;
+}
+
 function renderAnalisis() {
   const campana  = document.getElementById('f-campana').value;
   const empresas = [...new Set(allData.filter(r=>!campana||r.campana===campana).map(r=>r.empresa))].sort();
@@ -2912,6 +3152,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
     if (tab.dataset.tab==='evolucion') renderEvolucion();
     if (tab.dataset.tab==='evol-resultado') renderEvolResultado();
+    if (tab.dataset.tab==='negocio') renderNegocio();
     if (tab.dataset.tab==='analisis') renderAnalisis();
     if (tab.dataset.tab==='semaforo') renderSemaforo();
   });
