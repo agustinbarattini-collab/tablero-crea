@@ -410,8 +410,8 @@ input[type=range] { flex: 1; accent-color: var(--blue); cursor: pointer; }
     </div>
     <div style="font-size:11px; color:var(--muted); margin-top:10px; line-height:1.7;">
       <strong>Cómo se lee:</strong> el puente parte del MN/ha del mes base y suma/resta cada driver hasta el MN/ha del mes actual (los drivers suman exacto el cambio total).
-      El <strong>Ingreso</strong> se abre en <strong>Precio</strong> (precio neto U$S/tn, a rindes y superficie base), <strong>Rinde</strong> (kg/ha, a precios base) y <strong>Plan de siembra / Mix</strong> (cambio de superficie y composición de cultivos, incluye cultivos nuevos o que salieron).
-      Precio y Rinde se calculan sobre los cultivos presentes en ambos meses; todo lo demás cae en Plan de siembra. Costos en contra (más gasto = resta MN).
+      El <strong>Ingreso</strong> se abre en <strong>Precio</strong> (precio neto U$S/tn, a rindes y superficie base), <strong>Rinde</strong> (kg/ha, a precios base) y <strong>Plan de siembra / Mix</strong> (efecto total de la decisión de siembra: cambio de superficie y composición de cultivos —incluye cultivos nuevos/que salieron y Dado en Alquiler— tanto del lado del ingreso como de los costos).
+      Precio y Rinde se calculan sobre los cultivos presentes en ambos meses. Los costos (<strong>Gastos Directos, Alquiler, Estructura</strong>) muestran <strong>solo el cambio de tarifa real por cultivo</strong> (a mezcla base); el efecto de la mezcla sobre los costos ya está dentro de Plan de siembra. Costos en contra (más tarifa = resta MN).
     </div>
   </div>
 
@@ -2452,12 +2452,18 @@ function renderNegocio() {
   const A = comp(rowsA), B = comp(rowsB);
   const rentA = calcRentabilidad(rowsA), rentB = calcRentabilidad(rowsB);
 
-  // Descomposición del ingreso en Precio / Rinde / Mix (sobre cultivos comunes; el resto cae en Mix)
-  const cropAgg = (rows) => { const m={}; rows.forEach(r=>{ const c=r.cultivo;
-      (m[c]=m[c]||{sup:0,ton:0,inc:0}); m[c].sup+=(r.superficie||0);
-      m[c].ton+=(r.rendimiento||0)*(r.superficie||0); m[c].inc+=(r.ingresos||0)*(r.superficie||0); }); return m; };
-  const DADO='Dado en Alquiler';   // campo cedido a terceros: su ingreso es renta, no precio de grano
+  // Agregado por cultivo (todo × superficie, para repartir efectos). Incluye costos y Has físicas.
+  const cropAgg = (rows) => { const m={}; rows.forEach(r=>{ const c=r.cultivo; const s=r.superficie||0;
+      const o=(m[c]=m[c]||{sup:0,has:0,ton:0,inc:0,gd:0,alq:0,ovh:0,interm:0,interes:0});
+      o.sup+=s; o.has+=Math.min(r.hasSin2da||0,s); o.ton+=(r.rendimiento||0)*s;
+      o.inc+=(r.ingresos||0)*s; o.gd+=(r.gd||0)*s; o.alq+=(r.alq||0)*s;
+      o.ovh+=((r.gerenc||0)+(r.estruc||0)+(r.adm||0))*s;
+      o.interm+=(r.intermedias||0)*s; o.interes+=(r.interes||0)*s; }); return m; };
+  const DADO='Dado en Alquiler';   // campo cedido: su ingreso es renta, no precio de grano (va a Plan de siembra)
   const cA=cropAgg(rowsA), cB=cropAgg(rowsB);
+  const HB = B.H||1, HA = A.H||1;
+
+  // Precio y Rinde: por cultivo común, a precio propio de cada uno (excluye Dado en Alquiler)
   let priceEff=0, rindeEff=0; const cropDetail=[];
   Object.keys(cB).forEach(c=>{ if(c===DADO || !cA[c]) return;
     const b=cB[c], a=cA[c];
@@ -2467,25 +2473,34 @@ function renderNegocio() {
     priceEff+=pe; rindeEff+=re;
     cropDetail.push({c, pe, re, pB, pA, rB, rA, supB:b.sup, supA:a.sup});
   });
-  const HB = B.H||1;
   const priceHa = priceEff/HB, rindeHa = rindeEff/HB;
-  const dINha = A.inHa - B.inHa;
-  let rentaHa = (((cA[DADO]&&cA[DADO].inc)||0) - ((cB[DADO]&&cB[DADO].inc)||0))/HB;
-  let mixHa = dINha - priceHa - rindeHa - rentaHa;
 
-  // Drivers (aporte al cambio de MN/ha). Costos: más gasto = resta.
+  // Para cada costo: cambio total por ha = efecto TARIFA (cambio de tarifa por cultivo, a mezcla base) + efecto MEZCLA.
+  // Los drivers de costo muestran solo la tarifa; el efecto mezcla se junta en Plan de siembra.
+  const totHa  = (cm,H,k)=>Object.values(cm).reduce((s,o)=>s+o[k],0)/H;
+  const rateEff = (k) => { let e=0; Object.keys(cB).forEach(c=>{ if(!cA[c]) return;
+      const b=cB[c], a=cA[c]; if(!b.sup||!a.sup) return;
+      e += (a[k]/a.sup - b[k]/b.sup) * b.sup; }); return e/HB; };
+  const split = (k) => { const d=totHa(cA,HA,k)-totHa(cB,HB,k), rate=rateEff(k); return {d, rate, mix:d-rate}; };
+  const gdS=split('gd'), alqS=split('alq'), ovhS=split('ovh'), imS=split('interm'), inS=split('interes');
+
+  const dINha = A.inHa - B.inHa;
+  const mixIN = dINha - priceHa - rindeHa;              // mezcla del ingreso (cultivos nuevos/salieron, Dado en Alquiler, proporciones)
+  const dadoHa = (((cA[DADO]&&cA[DADO].inc)||0) - ((cB[DADO]&&cB[DADO].inc)||0))/HB;
+  // Plan de siembra = efecto TOTAL de la decisión de mezcla: lado ingreso + lado costos (signos de costo invertidos)
+  const planHa = mixIN - gdS.mix - alqS.mix - ovhS.mix + imS.mix - inS.mix;
+
+  // Drivers (aporte al cambio de MN/ha). Costos: solo efecto tarifa; más tarifa = resta.
   const dMN = A.mnHa - B.mnHa;
   const drivers = [
     {k:'precio', lbl:'Precio', v:priceHa},
     {k:'rinde',  lbl:'Rinde',  v:rindeHa},
+    {k:'mix',    lbl:'Plan de siembra / Mix', v:planHa},
+    {k:'gd',     lbl:'Gastos Directos', v:-gdS.rate},
+    {k:'alq',    lbl:'Alquiler',        v:-alqS.rate},
+    {k:'ovh',    lbl:'Estructura',      v:-ovhS.rate},
   ];
-  if (Math.abs(rentaHa) > 0.5) drivers.push({k:'renta', lbl:'Renta campo cedido', v:rentaHa});
-  else { mixHa += rentaHa; rentaHa = 0; }
-  drivers.push({k:'mix', lbl:'Plan de siembra / Mix', v:mixHa});
-  drivers.push({k:'gd',  lbl:'Gastos Directos', v:-(A.gdHa-B.gdHa)});
-  drivers.push({k:'alq', lbl:'Alquiler',        v:-(A.alqHa-B.alqHa)});
-  drivers.push({k:'ovh', lbl:'Estructura',      v:-(A.ovhHa-B.ovhHa)});
-  const otros = dMN - drivers.reduce((s,d)=>s+d.v,0);   // intermedias, intereses, etc.
+  const otros = dMN - drivers.reduce((s,d)=>s+d.v,0);   // residual: tarifa de interm./int. + redondeos
   if (Math.abs(otros) > 1) drivers.push({k:'otros', lbl:'Otros (interm./int.)', v:otros});
 
   // ── Cards ──
@@ -2529,9 +2544,11 @@ function renderNegocio() {
       ctx.save(); ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
       meta.data.forEach((bar,i)=>{ const isDrv=driverVals[i]!=null;
         const val=isDrv?driverVals[i]:anchorVals[i];
-        const txt=(isDrv&&val>=0?'+':'')+fmt(val,0);
-        ctx.fillStyle=isDrv?(val>=0?'#3fb950':'#f85149'):'#c9d1d9';
-        ctx.fillText(txt, bar.x, bar.y-6); });
+        let txt, color;
+        if (isDrv) { const r=Math.round(val)||0; txt=(r>0?'+':'')+fmt(r,0);
+          color = r>0 ? '#3fb950' : (r<0 ? '#f85149' : '#8b949e'); }
+        else { txt=fmt(val,0); color='#c9d1d9'; }
+        ctx.fillStyle=color; ctx.fillText(txt, bar.x, bar.y-6); });
       ctx.restore(); } }]
   });
 
@@ -2551,11 +2568,12 @@ function renderNegocio() {
         return signo
         ? `<strong style="color:var(--green)">Mejores rindes</strong> (+${abs}/ha)${cultTxt}: más kg a precios similares.`
         : `<strong style="color:var(--red)">Cayeron los rindes</strong> (−${abs}/ha)${cultTxt}.`; }
-      case 'mix': { let det='';
-        if (signo && nuevos.length) det = `: sumó ${nuevos[0]}${nuevos.length>1?' y otros':''}`;
-        else if (!signo && salieron.length) det = `: salió ${salieron[0]}${salieron.length>1?' y otros':''}`;
+      case 'mix': { const parts=[];
+        if (nuevos.length)   parts.push(`sumó ${nuevos.slice(0,2).join(', ')}`);
+        if (salieron.length) parts.push(`salió ${salieron.slice(0,2).join(', ')}`);
+        if (Math.abs(dadoHa)>2) parts.push(`${dadoHa>=0?'más':'menos'} ingreso por campo dado en alquiler`);
+        const det = parts.length ? ': '+parts.join('; ') : '';
         return `<strong>Cambio en el plan de siembra</strong> (${signo?'+':'−'}${abs}/ha)${det} — cambió la superficie y composición de cultivos.`; }
-      case 'renta': return `<strong>Renta del campo cedido</strong> (${signo?'+':'−'}${abs}/ha): cambió el ingreso por alquiler a terceros (Dado en Alquiler).`;
       case 'gd':  return `Los <strong>gastos directos</strong> ${signo?'bajaron':'subieron'} (${signo?'+':'−'}${abs}/ha de efecto).`;
       case 'alq': return `El <strong>alquiler</strong> ${signo?'bajó':'subió'} (${signo?'+':'−'}${abs}/ha de efecto).`;
       case 'ovh': return `Los <strong>gastos de estructura</strong> ${signo?'bajaron':'subieron'} (${signo?'+':'−'}${abs}/ha de efecto).`;
